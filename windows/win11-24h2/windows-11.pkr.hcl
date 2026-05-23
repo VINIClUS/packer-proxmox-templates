@@ -55,6 +55,11 @@ source "proxmox-iso" "windows_11" {
     pre_enrolled_keys = true
   }
 
+  tpm_config {
+    tpm_storage_pool = var.proxmox_vm_storage_pool
+    tpm_version      = "v2.0"
+  }
+
   disks {
     type         = "scsi"
     storage_pool = var.proxmox_vm_storage_pool

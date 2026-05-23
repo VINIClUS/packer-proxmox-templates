@@ -56,6 +56,9 @@ if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
 if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
     throw "Packer file must use virtio-scsi-single"
 }
+if ($packerFile -notmatch '(?s)tpm_config\s+\{\s*tpm_storage_pool\s*=\s*var\.proxmox_vm_storage_pool\s*tpm_version\s*=\s*"v2\.0"\s*\}') {
+    throw "Packer file must attach a TPM 2.0 device for Windows 11 setup"
+}
 if ($packerFile -notmatch 'boot\s*=\s*"order=sata0;ide0;scsi0"') {
     throw "Packer file must boot from the Windows ISO before the empty system disk"
 }
