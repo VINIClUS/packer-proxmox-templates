@@ -96,6 +96,14 @@ Failed-build cleanup of generated `packer*.iso` files in ISO storage requires:
 Datastore.Allocate on /storage/local
 ```
 
+VM creation/configuration currently also requires:
+
+```text
+VM.Config.Options on /vms/9101
+```
+
+If the build VM ID changes, grant the equivalent permission on that VM path or on a parent scope that covers the Packer build VM IDs.
+
 ## Documentation
 
 Credential requirements are documented in `docs/credentials/windows-template-credentials.html`. Update that HTML file whenever a variable or secret requirement changes. Do not commit `config/Proxmox.pkrvars.hcl`.
