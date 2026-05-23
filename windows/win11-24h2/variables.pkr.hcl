@@ -129,7 +129,7 @@ variable "cpu_sockets" {
 variable "memory_mb" {
   type        = number
   description = "Memory assigned to the temporary VM."
-  default     = 4096
+  default     = 8192
 }
 
 variable "disk_size" {
@@ -141,13 +141,13 @@ variable "disk_size" {
 variable "windows_edition" {
   type        = string
   description = "Windows edition name passed to setup."
-  default     = "Windows 11 Pro"
+  default     = "Windows 11 Enterprise"
 }
 
 variable "windows_product_key" {
   type        = string
   description = "Generic setup key used only to bypass the Windows setup product-key prompt."
-  default     = "W269N-WFGWX-YVC9B-4J6C9-T83GX"
+  default     = "NPPR9-FWDCX-D2C8J-H872K-2YT43"
   sensitive   = true
 }
 
