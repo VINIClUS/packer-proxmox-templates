@@ -1,0 +1,19 @@
+# Optional target-specific defaults. Copy values into config/Proxmox.pkrvars.hcl
+# or pass this file after the global config file when building this template.
+
+vm_id                         = 9101
+vm_name                       = "win11-24h2-packer"
+template_name                 = "tpl-win11-24h2"
+template_description          = "Windows 11 24H2 golden image built by Packer for Proxmox."
+
+cpu_cores                     = 4
+cpu_sockets                   = 1
+memory_mb                     = 4096
+disk_size                     = "80G"
+
+windows_edition               = "Windows 11 Pro"
+timezone                      = "E. South America Standard Time"
+system_locale                 = "en-US"
+input_locale                  = "en-US"
+user_locale                   = "en-US"
+computer_name                 = "WIN11-PACKER"

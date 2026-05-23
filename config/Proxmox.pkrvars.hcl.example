@@ -1,0 +1,22 @@
+# Copy this file to config/Proxmox.pkrvars.hcl and replace all placeholders.
+# The real file is ignored by git.
+
+proxmox_url                   = "https://192.168.1.149:8006/api2/json"
+proxmox_node                  = "pve"
+proxmox_api_token_id          = "packer@pve!packer"
+proxmox_api_token_secret      = "REPLACE_WITH_PROXMOX_API_TOKEN_SECRET"
+proxmox_insecure_skip_tls     = true
+
+proxmox_iso_storage_pool      = "local"
+proxmox_vm_storage_pool       = "local-lvm"
+proxmox_network_bridge        = "vmbr0"
+proxmox_vlan_tag              = 0
+
+windows_iso_file              = "local:iso/Win11_24H2_English_x64.iso"
+windows_iso_checksum          = "none"
+virtio_iso_file               = "local:iso/virtio-win.iso"
+
+winrm_username                = "Administrator"
+winrm_password                = "REPLACE_WITH_STRONG_TEMPORARY_WINRM_PASSWORD"
+local_admin_full_name         = "Packer Local Administrator"
+local_admin_description       = "Temporary Administrator account used only during Packer image creation."

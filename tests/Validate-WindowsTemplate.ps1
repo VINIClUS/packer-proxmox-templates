@@ -1,0 +1,103 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$templateRoot = Join-Path $root "windows/win11-24h2"
+$requiredFiles = @(
+    "windows/win11-24h2/windows-11.pkr.hcl",
+    "windows/win11-24h2/variables.pkr.hcl",
+    "windows/win11-24h2/http/Autounattend.xml.pkrtpl",
+    "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
+    "windows/win11-24h2/scripts/Install-VirtIO.ps1",
+    "windows/win11-24h2/scripts/Optimize-Template.ps1",
+    "windows/win11-24h2/scripts/Sysprep-Template.ps1",
+    "config/Proxmox.pkrvars.hcl.example",
+    "windows/win11-24h2/windows-11.pkrvars.hcl.example",
+    "docs/credentials/windows-template-credentials.html"
+)
+
+foreach ($relativePath in $requiredFiles) {
+    $path = Join-Path $root $relativePath
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "Missing required file: $relativePath"
+    }
+}
+
+$varsExample = Get-Content -LiteralPath (Join-Path $root "config/Proxmox.pkrvars.hcl.example") -Raw
+if ($varsExample -notmatch 'proxmox_url\s*=\s*"https://192\.168\.1\.149:8006/api2/json"') {
+    throw "Proxmox example must default to https://192.168.1.149:8006/api2/json"
+}
+if ($varsExample -notmatch 'proxmox_api_token_secret') {
+    throw "Proxmox example must include proxmox_api_token_secret"
+}
+if ($varsExample -notmatch 'winrm_password') {
+    throw "Proxmox example must include winrm_password"
+}
+
+$packerFile = Get-Content -LiteralPath (Join-Path $templateRoot "windows-11.pkr.hcl") -Raw
+if ($packerFile -notmatch 'source\s+"proxmox-iso"\s+"windows_11"') {
+    throw "Packer file must define source proxmox-iso windows_11"
+}
+if ($packerFile -notmatch 'additional_iso_files') {
+    throw "Packer file must attach local answer/scripts ISO"
+}
+if ($packerFile -notmatch 'http_directory\s*=\s*"http"') {
+    throw "Packer file must serve the local http directory"
+}
+if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
+    throw "Packer file must use WinRM communicator"
+}
+if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
+    throw "Packer file must use virtio-scsi-single"
+}
+if ($packerFile -match '=\s*"\$\{path\.root\}/' -or $packerFile -match '\[\s*"\$\{path\.root\}/') {
+    throw "Packer file must wrap local path.root references with abspath() for reliable validation/builds"
+}
+
+$autounattend = Get-Content -LiteralPath (Join-Path $templateRoot "http/Autounattend.xml.pkrtpl") -Raw
+foreach ($needle in @("Enable-PSRemoting", "Configure-WinRM.ps1", "AdministratorPassword")) {
+    if ($autounattend -notmatch [regex]::Escape($needle)) {
+        throw "Autounattend.xml must contain $needle"
+    }
+}
+$renderedAutounattend = $autounattend
+foreach ($placeholder in @(
+    "winrm_username",
+    "winrm_password",
+    "local_admin_full_name",
+    "local_admin_description",
+    "windows_edition",
+    "timezone",
+    "system_locale",
+    "input_locale",
+    "user_locale",
+    "computer_name"
+)) {
+    $renderedAutounattend = $renderedAutounattend.Replace("`${$placeholder}", "example")
+}
+[xml]$null = $renderedAutounattend
+
+$powershellFiles = @(
+    "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
+    "windows/win11-24h2/scripts/Install-VirtIO.ps1",
+    "windows/win11-24h2/scripts/Optimize-Template.ps1",
+    "windows/win11-24h2/scripts/Sysprep-Template.ps1"
+)
+foreach ($relativePath in $powershellFiles) {
+    $path = Join-Path $root $relativePath
+    $errors = $null
+    [System.Management.Automation.PSParser]::Tokenize((Get-Content -LiteralPath $path -Raw), [ref]$errors) | Out-Null
+    if ($errors.Count -gt 0) {
+        $messages = ($errors | ForEach-Object { $_.Message }) -join "; "
+        throw "$relativePath has PowerShell syntax errors: $messages"
+    }
+}
+
+$credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
+foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "192.168.1.149:8006")) {
+    if ($credentialDoc -notmatch [regex]::Escape($needle)) {
+        throw "Credential documentation must mention $needle"
+    }
+}
+
+Write-Host "Windows template structure validated."
