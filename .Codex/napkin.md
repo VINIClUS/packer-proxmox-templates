@@ -9,7 +9,9 @@
 ## Execution & Validation (Highest Priority)
 1. **[2026-05-22] Validate Packer targets before build**
    Do instead: run `rtk packer init <target>` and `rtk packer validate -var-file="config/Proxmox.pkrvars.hcl" <target>` before any image build.
-2. **[2026-05-23] Use Packer debug logs for WinRM waits**
+2. **[2026-05-23] Wait after deleting Proxmox VMID 9101**
+   Do instead: after cleanup deletes VM/template 9101, wait for Proxmox deletion to settle before reusing the VMID; otherwise delayed deletion can remove the next build VM.
+3. **[2026-05-23] Use Packer debug logs for WinRM waits**
    Do instead: rerun with `PACKER_LOG=1` and inspect `Error getting WinRM host` lines before changing Windows setup scripts.
 
 ## Shell & Command Reliability
