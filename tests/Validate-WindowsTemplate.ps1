@@ -149,6 +149,16 @@ foreach ($needle in @("Set-NetConnectionProfile", "Enable-PSRemoting", "SkipNetw
     }
 }
 
+$optimizeScript = Get-Content -LiteralPath (Join-Path $templateRoot "scripts/Optimize-Template.ps1") -Raw
+foreach ($needle in @("foreach (`$eventLog in @(wevtutil.exe el))", "try", "Skipping event log")) {
+    if ($optimizeScript -notmatch [regex]::Escape($needle)) {
+        throw "Optimize-Template.ps1 must treat protected event logs as non-fatal: $needle"
+    }
+}
+if ($optimizeScript -match 'wevtutil\s+el\s*\|\s*ForEach-Object\s*\{\s*wevtutil\s+cl') {
+    throw "Optimize-Template.ps1 must not fail the build on a single protected event log"
+}
+
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
 foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "QEMU Guest Agent", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "192.168.1.149:8006")) {
     if ($credentialDoc -notmatch [regex]::Escape($needle)) {
