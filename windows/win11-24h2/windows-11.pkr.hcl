@@ -122,6 +122,9 @@ build {
   sources = ["source.proxmox-iso.windows_11"]
 
   provisioner "powershell" {
+    elevated_user     = var.winrm_username
+    elevated_password = var.winrm_password
+
     scripts = [
       abspath("${path.root}/scripts/Install-VirtIO.ps1"),
       abspath("${path.root}/scripts/Configure-EnterpriseRemoting.ps1"),
@@ -134,6 +137,9 @@ build {
   }
 
   provisioner "powershell" {
+    elevated_user     = var.winrm_username
+    elevated_password = var.winrm_password
+
     scripts = [
       abspath("${path.root}/scripts/Sysprep-Template.ps1")
     ]

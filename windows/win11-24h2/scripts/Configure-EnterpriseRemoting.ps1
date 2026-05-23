@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) {
 $openSshCapabilityName = "OpenSSH.Server~~~~0.0.1.0"
 $openSshCapability = Get-WindowsCapability -Online -Name $openSshCapabilityName
 if ($openSshCapability.State -ne "Installed") {
-  Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Host
+  Add-WindowsCapability -Online -Name $openSshCapabilityName | Out-Host
 }
 
 $sshd = Get-Service -Name sshd -ErrorAction Stop

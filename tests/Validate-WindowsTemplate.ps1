@@ -70,6 +70,9 @@ if ($packerFile -notmatch 'serials\s*=\s*\[\s*"socket"\s*\]') {
 if ($packerFile -notmatch 'Configure-EnterpriseRemoting\.ps1') {
     throw "Packer file must run enterprise remote management provisioning before template optimization"
 }
+if ($packerFile -notmatch 'elevated_user\s*=\s*var\.winrm_username' -or $packerFile -notmatch 'elevated_password\s*=\s*var\.winrm_password') {
+    throw "PowerShell provisioners must run elevated so Windows capabilities can be installed over WinRM"
+}
 if ($packerFile -notmatch '(?s)tpm_config\s+\{\s*tpm_storage_pool\s*=\s*var\.proxmox_vm_storage_pool\s*tpm_version\s*=\s*"v2\.0"\s*\}') {
     throw "Packer file must attach a TPM 2.0 device for Windows 11 setup"
 }
@@ -181,7 +184,7 @@ if ($optimizeScript -match 'wevtutil\s+el\s*\|\s*ForEach-Object\s*\{\s*wevtutil\
 $enterpriseRemotingScript = Get-Content -LiteralPath (Join-Path $templateRoot "scripts/Configure-EnterpriseRemoting.ps1") -Raw
 foreach ($needle in @(
     "bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200",
-    "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
+    "Add-WindowsCapability -Online -Name `$openSshCapabilityName",
     "Set-Service -Name sshd -StartupType Automatic",
     "Start-Service -Name sshd",
     "HKLM:\SOFTWARE\OpenSSH",
