@@ -64,6 +64,9 @@ if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
 $service = Get-Service -Name QEMU-GA -ErrorAction SilentlyContinue
 if ($service) {
   Set-Service -Name QEMU-GA -StartupType Automatic
+  # Recover the guest-agent channel if Windows briefly drops it during first-logon settling.
+  & sc.exe failure QEMU-GA reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Host
+  & sc.exe failureflag QEMU-GA 1 | Out-Host
   Restart-Service -Name QEMU-GA -ErrorAction SilentlyContinue
   Start-Service -Name QEMU-GA -ErrorAction SilentlyContinue
   Write-Host "QEMU Guest Agent service started."
