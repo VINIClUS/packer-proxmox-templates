@@ -1,10 +1,16 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+Write-Host "Configuring WinRM for Packer..."
+
 Get-NetConnectionProfile -ErrorAction SilentlyContinue |
   Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
-Enable-PSRemoting -Force -SkipNetworkProfileCheck
 
+Write-Host "Starting WinRM service..."
+Set-Service -Name WinRM -StartupType Automatic
+Start-Service -Name WinRM
+
+Write-Host "Applying WinRM listener and authentication settings..."
 winrm quickconfig -quiet
 winrm set winrm/config '@{MaxTimeoutms="1800000"}'
 winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="2048"}'
@@ -21,5 +27,4 @@ if (-not (Get-NetFirewallRule -DisplayName "Packer WinRM HTTP" -ErrorAction Sile
     -Profile Any | Out-Null
 }
 
-Set-Service -Name WinRM -StartupType Automatic
-Restart-Service -Name WinRM
+Write-Host "WinRM configuration complete."

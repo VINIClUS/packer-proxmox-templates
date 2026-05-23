@@ -79,7 +79,7 @@ if ($packerFile -match '=\s*"\$\{path\.root\}/' -or $packerFile -match '\[\s*"\$
 }
 
 $autounattend = Get-Content -LiteralPath (Join-Path $templateRoot "http/Autounattend.xml.pkrtpl") -Raw
-foreach ($needle in @("Enable-PSRemoting", "Configure-WinRM.ps1", "AdministratorPassword", "ProductKey")) {
+foreach ($needle in @("NonInteractive", "Configure-WinRM.ps1", "AdministratorPassword", "ProductKey")) {
     if ($autounattend -notmatch [regex]::Escape($needle)) {
         throw "Autounattend.xml must contain $needle"
     }
@@ -116,6 +116,11 @@ foreach ($relativePath in $powershellFiles) {
         $messages = ($errors | ForEach-Object { $_.Message }) -join "; "
         throw "$relativePath has PowerShell syntax errors: $messages"
     }
+}
+
+$winrmScript = Get-Content -LiteralPath (Join-Path $templateRoot "http/scripts/Configure-WinRM.ps1") -Raw
+if ($winrmScript -match 'Restart-Service\s+-Name\s+WinRM') {
+    throw "Configure-WinRM.ps1 must not restart WinRM during specialize; it can hang setup"
 }
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
