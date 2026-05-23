@@ -48,18 +48,15 @@ New-ItemProperty `
 # Keep the inbound SSH firewall rule deterministic for Ansible/Terraform pipelines.
 $sshFirewallRule = Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue
 if ($sshFirewallRule) {
-  Set-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -Enabled True -Direction Inbound -Action Allow
-  Set-NetFirewallPortFilter -AssociatedNetFirewallRule $sshFirewallRule -Protocol TCP -LocalPort 22
+  Remove-NetFirewallRule -Name "OpenSSH-Server-In-TCP"
 }
-else {
-  New-NetFirewallRule `
-    -Name "OpenSSH-Server-In-TCP" `
-    -DisplayName "OpenSSH Server (sshd)" `
-    -Enabled True `
-    -Direction Inbound `
-    -Protocol TCP `
-    -Action Allow `
-    -LocalPort 22 | Out-Null
-}
+New-NetFirewallRule `
+  -Name "OpenSSH-Server-In-TCP" `
+  -DisplayName "OpenSSH Server (sshd)" `
+  -Enabled True `
+  -Direction Inbound `
+  -Protocol TCP `
+  -Action Allow `
+  -LocalPort 22 | Out-Null
 
 Write-Host "EMS serial console and OpenSSH Server configured."

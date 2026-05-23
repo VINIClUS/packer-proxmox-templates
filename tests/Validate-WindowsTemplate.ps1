@@ -189,6 +189,7 @@ foreach ($needle in @(
     "Start-Service -Name sshd",
     "HKLM:\SOFTWARE\OpenSSH",
     "DefaultShell",
+    "Remove-NetFirewallRule",
     "New-NetFirewallRule",
     "OpenSSH-Server-In-TCP",
     "LocalPort 22"
@@ -199,6 +200,9 @@ foreach ($needle in @(
 }
 if ($enterpriseRemotingScript -notmatch 'bcdedit\.exe\s+/ems\s+`\{current`\}\s+ON') {
     throw "Configure-EnterpriseRemoting.ps1 must enable EMS for the current boot entry"
+}
+if ($enterpriseRemotingScript -match 'Set-NetFirewallPortFilter') {
+    throw "Configure-EnterpriseRemoting.ps1 must recreate the SSH firewall rule instead of using version-specific port-filter mutation"
 }
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
