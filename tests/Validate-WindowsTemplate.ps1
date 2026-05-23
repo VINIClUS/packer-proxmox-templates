@@ -41,8 +41,11 @@ if ($packerFile -notmatch 'source\s+"proxmox-iso"\s+"windows_11"') {
 if ($packerFile -notmatch 'additional_iso_files') {
     throw "Packer file must attach local answer/scripts ISO"
 }
-if ($packerFile -notmatch 'http_directory\s*=\s*"http"') {
+if ($packerFile -notmatch 'http_directory\s*=\s*abspath\("\$\{path\.root\}/http"\)') {
     throw "Packer file must serve the local http directory"
+}
+if ($packerFile -match 'http_directory\s*=\s*"http"') {
+    throw "Packer file must use abspath for http_directory when building from the repository root"
 }
 if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
     throw "Packer file must use WinRM communicator"

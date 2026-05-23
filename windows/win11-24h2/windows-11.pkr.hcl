@@ -92,7 +92,7 @@ source "proxmox-iso" "windows_11" {
     unmount = true
   }
 
-  http_directory = "http"
+  http_directory = abspath("${path.root}/http")
   boot_wait      = "5s"
   boot_command = [
     "<spacebar><spacebar>"
