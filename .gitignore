@@ -18,3 +18,8 @@ env/*
 
 .iso/*
 *.log
+.Codex/*
+.Codex
+logs/*
+logs
+excalidraw.log
