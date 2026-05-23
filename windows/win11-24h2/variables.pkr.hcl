@@ -144,6 +144,13 @@ variable "windows_edition" {
   default     = "Windows 11 Pro"
 }
 
+variable "windows_product_key" {
+  type        = string
+  description = "Generic setup key used only to bypass the Windows setup product-key prompt."
+  default     = "W269N-WFGWX-YVC9B-4J6C9-T83GX"
+  sensitive   = true
+}
+
 variable "timezone" {
   type        = string
   description = "Windows time zone ID."

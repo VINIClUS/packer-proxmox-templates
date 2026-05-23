@@ -15,6 +15,7 @@ locals {
       local_admin_full_name   = var.local_admin_full_name
       local_admin_description = var.local_admin_description
       windows_edition         = var.windows_edition
+      windows_product_key     = var.windows_product_key
       timezone                = var.timezone
       system_locale           = var.system_locale
       input_locale            = var.input_locale

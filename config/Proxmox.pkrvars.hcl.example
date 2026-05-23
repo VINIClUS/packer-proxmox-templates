@@ -15,6 +15,7 @@ proxmox_network_bridge        = "vmbr0"
 windows_iso_file              = "local:iso/Win11_24H2_English_x64.iso"
 windows_iso_checksum          = "none"
 virtio_iso_file               = "local:iso/virtio-win.iso"
+windows_product_key           = "W269N-WFGWX-YVC9B-4J6C9-T83GX"
 
 winrm_username                = "Administrator"
 winrm_password                = "REPLACE_WITH_STRONG_TEMPORARY_WINRM_PASSWORD"

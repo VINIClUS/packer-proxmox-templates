@@ -33,6 +33,9 @@ if ($varsExample -notmatch 'proxmox_api_token_secret') {
 if ($varsExample -notmatch 'winrm_password') {
     throw "Proxmox example must include winrm_password"
 }
+if ($varsExample -notmatch 'windows_product_key') {
+    throw "Proxmox example must include windows_product_key"
+}
 
 $packerFile = Get-Content -LiteralPath (Join-Path $templateRoot "windows-11.pkr.hcl") -Raw
 if ($packerFile -notmatch 'source\s+"proxmox-iso"\s+"windows_11"') {
@@ -70,7 +73,7 @@ if ($packerFile -match '=\s*"\$\{path\.root\}/' -or $packerFile -match '\[\s*"\$
 }
 
 $autounattend = Get-Content -LiteralPath (Join-Path $templateRoot "http/Autounattend.xml.pkrtpl") -Raw
-foreach ($needle in @("Enable-PSRemoting", "Configure-WinRM.ps1", "AdministratorPassword")) {
+foreach ($needle in @("Enable-PSRemoting", "Configure-WinRM.ps1", "AdministratorPassword", "ProductKey")) {
     if ($autounattend -notmatch [regex]::Escape($needle)) {
         throw "Autounattend.xml must contain $needle"
     }
@@ -82,6 +85,7 @@ foreach ($placeholder in @(
     "local_admin_full_name",
     "local_admin_description",
     "windows_edition",
+    "windows_product_key",
     "timezone",
     "system_locale",
     "input_locale",
@@ -109,7 +113,7 @@ foreach ($relativePath in $powershellFiles) {
 }
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
-foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "192.168.1.149:8006")) {
+foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "192.168.1.149:8006")) {
     if ($credentialDoc -notmatch [regex]::Escape($needle)) {
         throw "Credential documentation must mention $needle"
     }
