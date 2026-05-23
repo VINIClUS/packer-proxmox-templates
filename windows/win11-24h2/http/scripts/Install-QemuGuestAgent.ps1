@@ -4,14 +4,28 @@ $ErrorActionPreference = "Stop"
 Write-Host "Installing QEMU Guest Agent for Proxmox IP discovery..."
 
 Write-Host "Finalizing WinRM network profile and HTTP settings..."
-try {
-  Get-NetConnectionProfile -ErrorAction SilentlyContinue |
-    Where-Object { $_.NetworkCategory -eq "Public" } |
-    Set-NetConnectionProfile -NetworkCategory Private
+for ($attempt = 1; $attempt -le 12; $attempt++) {
+  try {
+    $profiles = @(Get-NetConnectionProfile -ErrorAction Stop)
+    if ($profiles.Count -gt 0) {
+      $profiles |
+        Where-Object { $_.NetworkCategory -eq "Public" } |
+        Set-NetConnectionProfile -NetworkCategory Private
+      break
+    }
+  }
+  catch {
+    Write-Host "Network profile check attempt $attempt failed: $($_.Exception.Message)"
+  }
+  Start-Sleep -Seconds 5
 }
-catch {
-  Write-Host "Unable to change network profile: $($_.Exception.Message)"
-}
+Enable-PSRemoting -SkipNetworkProfileCheck -Force | Out-Host
+New-ItemProperty `
+  -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
+  -Name LocalAccountTokenFilterPolicy `
+  -Value 1 `
+  -PropertyType DWord `
+  -Force | Out-Null
 winrm set winrm/config/service '@{AllowUnencrypted="true"}' | Out-Host
 
 $vioSerialInf = Get-PSDrive -PSProvider FileSystem |

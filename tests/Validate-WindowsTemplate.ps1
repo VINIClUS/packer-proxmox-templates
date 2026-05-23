@@ -140,7 +140,7 @@ if ($winrmScript -match 'qemu-ga-x86_64\.msi|msiexec\.exe') {
 }
 
 $qemuScript = Get-Content -LiteralPath (Join-Path $templateRoot "http/scripts/Install-QemuGuestAgent.ps1") -Raw
-foreach ($needle in @("Set-NetConnectionProfile", "AllowUnencrypted", "vioserial\w11\amd64\vioser.inf", "pnputil.exe", "guest-agent\qemu-ga-x86_64.msi", "msiexec.exe", "QEMU-GA")) {
+foreach ($needle in @("Set-NetConnectionProfile", "Enable-PSRemoting", "SkipNetworkProfileCheck", "LocalAccountTokenFilterPolicy", "AllowUnencrypted", "vioserial\w11\amd64\vioser.inf", "pnputil.exe", "guest-agent\qemu-ga-x86_64.msi", "msiexec.exe", "QEMU-GA")) {
     if ($qemuScript -notmatch [regex]::Escape($needle)) {
         throw "Install-QemuGuestAgent.ps1 must install VirtIO serial and start QEMU Guest Agent: $needle"
     }
