@@ -53,8 +53,14 @@ if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
 if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
     throw "Packer file must use virtio-scsi-single"
 }
-if ($packerFile -notmatch 'boot\s*=\s*"order=scsi1;ide0;scsi0"') {
+if ($packerFile -notmatch 'boot\s*=\s*"order=sata0;ide0;scsi0"') {
     throw "Packer file must boot from the Windows ISO before the empty system disk"
+}
+if ($packerFile -notmatch '(?s)boot_iso\s+\{\s*type\s*=\s*"sata".*?iso_file\s*=\s*var\.windows_iso_file') {
+    throw "Packer file must attach Windows install media as SATA so WinPE can read it before VirtIO drivers load"
+}
+if ($packerFile -notmatch '(?s)additional_iso_files\s+\{\s*type\s*=\s*"sata".*?iso_file\s*=\s*var\.virtio_iso_file') {
+    throw "Packer file must attach VirtIO driver media as SATA so Windows Setup can load storage drivers"
 }
 if ($packerFile -match 'vlan_tag\s*=\s*var\.proxmox_vlan_tag') {
     throw "Packer file must not emit vlan_tag=0 for untagged networks; omit vlan_tag unless tagged networks are explicitly modeled"

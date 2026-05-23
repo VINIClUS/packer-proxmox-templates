@@ -39,7 +39,7 @@ source "proxmox-iso" "windows_11" {
 
   os              = "win11"
   qemu_agent      = true
-  boot            = "order=scsi1;ide0;scsi0"
+  boot            = "order=sata0;ide0;scsi0"
   bios            = "ovmf"
   machine         = "q35"
   cpu_type        = "host"
@@ -71,14 +71,14 @@ source "proxmox-iso" "windows_11" {
   }
 
   boot_iso {
-    type         = "scsi"
+    type         = "sata"
     iso_file     = var.windows_iso_file
     iso_checksum = var.windows_iso_checksum
     unmount      = true
   }
 
   additional_iso_files {
-    type     = "scsi"
+    type     = "sata"
     iso_file = var.virtio_iso_file
     unmount  = true
   }
