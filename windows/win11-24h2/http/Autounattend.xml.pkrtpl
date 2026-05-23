@@ -146,6 +146,11 @@
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
+          <CommandLine>cmd.exe /c for %d in (D E F G H) do if exist %d:\Install-QemuGuestAgent.ps1 powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File %d:\Install-QemuGuestAgent.ps1</CommandLine>
+          <Description>Install QEMU Guest Agent for Proxmox IP discovery</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
           <CommandLine>powershell.exe -ExecutionPolicy Bypass -Command "Set-LocalUser -Name '${winrm_username}' -FullName '${local_admin_full_name}' -Description '${local_admin_description}'"</CommandLine>
           <Description>Annotate temporary local administrator</Description>
         </SynchronousCommand>

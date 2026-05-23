@@ -8,6 +8,7 @@ $requiredFiles = @(
     "windows/win11-24h2/variables.pkr.hcl",
     "windows/win11-24h2/http/Autounattend.xml.pkrtpl",
     "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
+    "windows/win11-24h2/http/scripts/Install-QemuGuestAgent.ps1",
     "windows/win11-24h2/scripts/Install-VirtIO.ps1",
     "windows/win11-24h2/scripts/Optimize-Template.ps1",
     "windows/win11-24h2/scripts/Sysprep-Template.ps1",
@@ -33,9 +34,6 @@ if ($varsExample -notmatch 'proxmox_api_token_secret') {
 if ($varsExample -notmatch 'winrm_password') {
     throw "Proxmox example must include winrm_password"
 }
-if ($varsExample -notmatch 'winrm_host') {
-    throw "Proxmox example must include winrm_host"
-}
 if ($varsExample -notmatch 'windows_product_key') {
     throw "Proxmox example must include windows_product_key"
 }
@@ -56,8 +54,8 @@ if ($packerFile -match 'http_directory\s*=\s*"http"') {
 if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
     throw "Packer file must use WinRM communicator"
 }
-if ($packerFile -notmatch 'winrm_host\s*=\s*var\.winrm_host') {
-    throw "Packer file must use explicit winrm_host to avoid pre-WinRM guest-agent discovery"
+if ($packerFile -notmatch 'Install-QemuGuestAgent\.ps1') {
+    throw "Packer file must include Install-QemuGuestAgent.ps1 on the generated answer ISO"
 }
 if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
     throw "Packer file must use virtio-scsi-single"
@@ -85,7 +83,7 @@ if ($packerFile -match '=\s*"\$\{path\.root\}/' -or $packerFile -match '\[\s*"\$
 }
 
 $autounattend = Get-Content -LiteralPath (Join-Path $templateRoot "http/Autounattend.xml.pkrtpl") -Raw
-foreach ($needle in @("NonInteractive", "Configure-WinRM.ps1", "AdministratorPassword", "ProductKey")) {
+foreach ($needle in @("NonInteractive", "Configure-WinRM.ps1", "Install-QemuGuestAgent.ps1", "AdministratorPassword", "ProductKey")) {
     if ($autounattend -notmatch [regex]::Escape($needle)) {
         throw "Autounattend.xml must contain $needle"
     }
@@ -110,6 +108,7 @@ foreach ($placeholder in @(
 
 $powershellFiles = @(
     "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
+    "windows/win11-24h2/http/scripts/Install-QemuGuestAgent.ps1",
     "windows/win11-24h2/scripts/Install-VirtIO.ps1",
     "windows/win11-24h2/scripts/Optimize-Template.ps1",
     "windows/win11-24h2/scripts/Sysprep-Template.ps1"
@@ -140,8 +139,15 @@ if ($winrmScript -match 'qemu-ga-x86_64\.msi|msiexec\.exe') {
     throw "Configure-WinRM.ps1 must not install QEMU Guest Agent during specialize; MSI install can hang setup"
 }
 
+$qemuScript = Get-Content -LiteralPath (Join-Path $templateRoot "http/scripts/Install-QemuGuestAgent.ps1") -Raw
+foreach ($needle in @("guest-agent\qemu-ga-x86_64.msi", "msiexec.exe", "QEMU-GA")) {
+    if ($qemuScript -notmatch [regex]::Escape($needle)) {
+        throw "Install-QemuGuestAgent.ps1 must install and start QEMU Guest Agent: $needle"
+    }
+}
+
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
-foreach ($needle in @("Proxmox API token", "WinRM host", "WinRM Administrator password", "Windows setup product key", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "192.168.1.149:8006")) {
+foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "QEMU Guest Agent", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "192.168.1.149:8006")) {
     if ($credentialDoc -notmatch [regex]::Escape($needle)) {
         throw "Credential documentation must mention $needle"
     }

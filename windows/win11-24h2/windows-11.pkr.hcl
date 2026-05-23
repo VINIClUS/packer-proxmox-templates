@@ -94,7 +94,8 @@ source "proxmox-iso" "windows_11" {
     iso_storage_pool = var.proxmox_iso_storage_pool
     cd_content       = local.answer_files
     cd_files = [
-      abspath("${path.root}/http/scripts/Configure-WinRM.ps1")
+      abspath("${path.root}/http/scripts/Configure-WinRM.ps1"),
+      abspath("${path.root}/http/scripts/Install-QemuGuestAgent.ps1")
     ]
     unmount = true
   }
@@ -106,7 +107,6 @@ source "proxmox-iso" "windows_11" {
   ]
 
   communicator   = "winrm"
-  winrm_host     = var.winrm_host
   winrm_username = var.winrm_username
   winrm_password = var.winrm_password
   winrm_timeout  = "2h"
