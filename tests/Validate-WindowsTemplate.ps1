@@ -122,6 +122,9 @@ $winrmScript = Get-Content -LiteralPath (Join-Path $templateRoot "http/scripts/C
 if ($winrmScript -match 'Restart-Service\s+-Name\s+WinRM') {
     throw "Configure-WinRM.ps1 must not restart WinRM during specialize; it can hang setup"
 }
+if ($winrmScript -match 'Get-NetConnectionProfile|Set-NetConnectionProfile') {
+    throw "Configure-WinRM.ps1 must not call network profile cmdlets during specialize; they can hang setup"
+}
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
 foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "192.168.1.149:8006")) {

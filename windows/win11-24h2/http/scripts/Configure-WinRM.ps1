@@ -3,9 +3,6 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "Configuring WinRM for Packer..."
 
-Get-NetConnectionProfile -ErrorAction SilentlyContinue |
-  Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
-
 Write-Host "Starting WinRM service..."
 Set-Service -Name WinRM -StartupType Automatic
 Start-Service -Name WinRM
