@@ -104,6 +104,12 @@ foreach ($iso in @($windowsIsoFile, $virtioIsoFile)) {
   }
 }
 
+$generatedIsos = @($volids | Where-Object { $_ -match "^$([regex]::Escape($isoStoragePool)):iso/packer\d+\.iso$" })
+if ($generatedIsos.Count -gt 0) {
+  Write-Host "Warning: generated Packer ISO leftovers found: $($generatedIsos -join ', ')"
+  Write-Host "Grant Datastore.Allocate on /storage/$isoStoragePool so failed builds can clean uploaded answer ISOs."
+}
+
 Write-Host "Proxmox API reachable and required ISO files are present."
 Write-Host "Node: $node"
 Write-Host "ISO storage: $isoStoragePool"
