@@ -18,6 +18,7 @@ virtio_iso_file               = "local:iso/virtio-win.iso"
 windows_product_key           = "NPPR9-FWDCX-D2C8J-H872K-2YT43"
 
 winrm_username                = "Administrator"
+winrm_host                    = "192.168.1.14"
 winrm_password                = "REPLACE_WITH_STRONG_TEMPORARY_WINRM_PASSWORD"
 local_admin_full_name         = "Packer Local Administrator"
 local_admin_description       = "Temporary Administrator account used only during Packer image creation."

@@ -33,6 +33,9 @@ if ($varsExample -notmatch 'proxmox_api_token_secret') {
 if ($varsExample -notmatch 'winrm_password') {
     throw "Proxmox example must include winrm_password"
 }
+if ($varsExample -notmatch 'winrm_host') {
+    throw "Proxmox example must include winrm_host"
+}
 if ($varsExample -notmatch 'windows_product_key') {
     throw "Proxmox example must include windows_product_key"
 }
@@ -52,6 +55,9 @@ if ($packerFile -match 'http_directory\s*=\s*"http"') {
 }
 if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
     throw "Packer file must use WinRM communicator"
+}
+if ($packerFile -notmatch 'winrm_host\s*=\s*var\.winrm_host') {
+    throw "Packer file must use explicit winrm_host to avoid pre-WinRM guest-agent discovery"
 }
 if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
     throw "Packer file must use virtio-scsi-single"
@@ -135,7 +141,7 @@ if ($winrmScript -match 'qemu-ga-x86_64\.msi|msiexec\.exe') {
 }
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
-foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "192.168.1.149:8006")) {
+foreach ($needle in @("Proxmox API token", "WinRM host", "WinRM Administrator password", "Windows setup product key", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "192.168.1.149:8006")) {
     if ($credentialDoc -notmatch [regex]::Escape($needle)) {
         throw "Credential documentation must mention $needle"
     }

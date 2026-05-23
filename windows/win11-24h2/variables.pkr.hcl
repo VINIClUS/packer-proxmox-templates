@@ -78,6 +78,11 @@ variable "winrm_password" {
   sensitive   = true
 }
 
+variable "winrm_host" {
+  type        = string
+  description = "IPv4 address or DNS name Packer uses for WinRM; set to a DHCP reservation for the temporary build VM."
+}
+
 variable "local_admin_full_name" {
   type        = string
   description = "Full name for the temporary local administrator."

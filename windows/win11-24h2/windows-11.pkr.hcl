@@ -106,6 +106,7 @@ source "proxmox-iso" "windows_11" {
   ]
 
   communicator   = "winrm"
+  winrm_host     = var.winrm_host
   winrm_username = var.winrm_username
   winrm_password = var.winrm_password
   winrm_timeout  = "2h"
