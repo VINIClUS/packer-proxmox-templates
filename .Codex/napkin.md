@@ -9,6 +9,8 @@
 ## Execution & Validation (Highest Priority)
 1. **[2026-05-22] Validate Packer targets before build**
    Do instead: run `rtk packer init <target>` and `rtk packer validate -var-file="config/Proxmox.pkrvars.hcl" <target>` before any image build.
+2. **[2026-05-23] Use Packer debug logs for WinRM waits**
+   Do instead: rerun with `PACKER_LOG=1` and inspect `Error getting WinRM host` lines before changing Windows setup scripts.
 
 ## Shell & Command Reliability
 1. **[2026-05-22] Use RTK prefix for shell commands**
@@ -17,6 +19,8 @@
 ## Domain Behavior Guardrails
 1. **[2026-05-22] Keep secrets out of tracked files**
    Do instead: store Proxmox credentials in ignored `config/*.pkrvars.hcl` files and track only `.example` files.
+2. **[2026-05-23] Windows 11 Proxmox media and ACL requirements**
+   Do instead: attach install/VirtIO ISOs as SATA, enable TPM 2.0, install NetKVM before WinRM, and grant `VM.GuestAgent.Audit` plus `VM.GuestAgent.Unrestricted` on the build VM.
 
 ## User Directives
 1. **[2026-05-23] Commit before new work**
