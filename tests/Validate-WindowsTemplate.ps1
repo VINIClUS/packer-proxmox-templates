@@ -10,6 +10,7 @@ $requiredFiles = @(
     "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
     "windows/win11-24h2/http/scripts/Install-QemuGuestAgent.ps1",
     "windows/win11-24h2/scripts/Install-VirtIO.ps1",
+    "windows/win11-24h2/scripts/Configure-EnterpriseRemoting.ps1",
     "windows/win11-24h2/scripts/Optimize-Template.ps1",
     "windows/win11-24h2/scripts/Sysprep-Template.ps1",
     "config/Proxmox.pkrvars.hcl.example",
@@ -63,6 +64,12 @@ if ($packerFile -notmatch 'Install-QemuGuestAgent\.ps1') {
 if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
     throw "Packer file must use virtio-scsi-single"
 }
+if ($packerFile -notmatch 'serials\s*=\s*\[\s*"socket"\s*\]') {
+    throw "Packer file must attach serial0 as a Proxmox socket for EMS/SAC access"
+}
+if ($packerFile -notmatch 'Configure-EnterpriseRemoting\.ps1') {
+    throw "Packer file must run enterprise remote management provisioning before template optimization"
+}
 if ($packerFile -notmatch '(?s)tpm_config\s+\{\s*tpm_storage_pool\s*=\s*var\.proxmox_vm_storage_pool\s*tpm_version\s*=\s*"v2\.0"\s*\}') {
     throw "Packer file must attach a TPM 2.0 device for Windows 11 setup"
 }
@@ -113,6 +120,7 @@ $powershellFiles = @(
     "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
     "windows/win11-24h2/http/scripts/Install-QemuGuestAgent.ps1",
     "windows/win11-24h2/scripts/Install-VirtIO.ps1",
+    "windows/win11-24h2/scripts/Configure-EnterpriseRemoting.ps1",
     "windows/win11-24h2/scripts/Optimize-Template.ps1",
     "windows/win11-24h2/scripts/Sysprep-Template.ps1"
 )
@@ -170,8 +178,28 @@ if ($optimizeScript -match 'wevtutil\s+el\s*\|\s*ForEach-Object\s*\{\s*wevtutil\
     throw "Optimize-Template.ps1 must not fail the build on a single protected event log"
 }
 
+$enterpriseRemotingScript = Get-Content -LiteralPath (Join-Path $templateRoot "scripts/Configure-EnterpriseRemoting.ps1") -Raw
+foreach ($needle in @(
+    "bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200",
+    "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
+    "Set-Service -Name sshd -StartupType Automatic",
+    "Start-Service -Name sshd",
+    "HKLM:\SOFTWARE\OpenSSH",
+    "DefaultShell",
+    "New-NetFirewallRule",
+    "OpenSSH-Server-In-TCP",
+    "LocalPort 22"
+)) {
+    if ($enterpriseRemotingScript -notmatch [regex]::Escape($needle)) {
+        throw "Configure-EnterpriseRemoting.ps1 must configure EMS and OpenSSH: $needle"
+    }
+}
+if ($enterpriseRemotingScript -notmatch 'bcdedit\.exe\s+/ems\s+`\{current`\}\s+ON') {
+    throw "Configure-EnterpriseRemoting.ps1 must enable EMS for the current boot entry"
+}
+
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
-foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "QEMU Guest Agent", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "192.168.1.149:8006")) {
+foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "QEMU Guest Agent", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "OpenSSH Server", "EMS", "serial0", "TCP 22", "192.168.1.149:8006")) {
     if ($credentialDoc -notmatch [regex]::Escape($needle)) {
         throw "Credential documentation must mention $needle"
     }

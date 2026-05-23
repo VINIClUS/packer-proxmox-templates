@@ -48,6 +48,7 @@ source "proxmox-iso" "windows_11" {
   sockets         = var.cpu_sockets
   memory          = var.memory_mb
   scsi_controller = "virtio-scsi-single"
+  serials         = ["socket"]
 
   efi_config {
     efi_storage_pool  = var.proxmox_vm_storage_pool
@@ -123,6 +124,7 @@ build {
   provisioner "powershell" {
     scripts = [
       abspath("${path.root}/scripts/Install-VirtIO.ps1"),
+      abspath("${path.root}/scripts/Configure-EnterpriseRemoting.ps1"),
       abspath("${path.root}/scripts/Optimize-Template.ps1")
     ]
   }
