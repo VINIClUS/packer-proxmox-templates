@@ -8,7 +8,7 @@ template_description          = "Windows 11 24H2 golden image built by Packer fo
 
 cpu_cores                     = 4
 cpu_sockets                   = 1
-memory_mb                     = 4096
+memory_mb                     = 8192
 disk_size                     = "80G"
 
 windows_edition               = "Windows 11 Enterprise"
