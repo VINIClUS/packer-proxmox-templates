@@ -135,7 +135,7 @@ if ($winrmScript -match 'qemu-ga-x86_64\.msi|msiexec\.exe') {
 }
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
-foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "192.168.1.149:8006")) {
+foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "192.168.1.149:8006")) {
     if ($credentialDoc -notmatch [regex]::Escape($needle)) {
         throw "Credential documentation must mention $needle"
     }
