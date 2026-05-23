@@ -104,6 +104,14 @@ VM.Config.Options on /vms/9101
 
 If the build VM ID changes, grant the equivalent permission on that VM path or on a parent scope that covers the Packer build VM IDs.
 
+Console access was granted during the 2026-05-22 retry. The next observed Proxmox 9 SDN requirement for the configured bridge is:
+
+```text
+SDN.Use on /sdn/zones/localnetwork/vmbr0
+```
+
+If `proxmox_network_bridge` changes, grant the equivalent `SDN.Use` permission for that bridge path.
+
 ## Documentation
 
 Credential requirements are documented in `docs/credentials/windows-template-credentials.html`. Update that HTML file whenever a variable or secret requirement changes. Do not commit `config/Proxmox.pkrvars.hcl`.
