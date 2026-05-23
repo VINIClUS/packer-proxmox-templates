@@ -39,6 +39,7 @@ source "proxmox-iso" "windows_11" {
 
   os              = "win11"
   qemu_agent      = true
+  boot            = "order=scsi1;ide0;scsi0"
   bios            = "ovmf"
   machine         = "q35"
   cpu_type        = "host"

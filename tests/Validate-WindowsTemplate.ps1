@@ -53,6 +53,9 @@ if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
 if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
     throw "Packer file must use virtio-scsi-single"
 }
+if ($packerFile -notmatch 'boot\s*=\s*"order=scsi1;ide0;scsi0"') {
+    throw "Packer file must boot from the Windows ISO before the empty system disk"
+}
 if ($packerFile -match 'vlan_tag\s*=\s*var\.proxmox_vlan_tag') {
     throw "Packer file must not emit vlan_tag=0 for untagged networks; omit vlan_tag unless tagged networks are explicitly modeled"
 }
