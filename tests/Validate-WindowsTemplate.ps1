@@ -130,6 +130,11 @@ foreach ($needle in @("NetKVM\w11\amd64\netkvm.inf", "pnputil.exe", "ipconfig.ex
         throw "Configure-WinRM.ps1 must install the VirtIO network driver before WinRM: $needle"
     }
 }
+foreach ($needle in @("guest-agent\qemu-ga-x86_64.msi", "msiexec.exe", "QEMU-GA")) {
+    if ($winrmScript -notmatch [regex]::Escape($needle)) {
+        throw "Configure-WinRM.ps1 must install QEMU Guest Agent before Packer waits for WinRM: $needle"
+    }
+}
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
 foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "192.168.1.149:8006")) {

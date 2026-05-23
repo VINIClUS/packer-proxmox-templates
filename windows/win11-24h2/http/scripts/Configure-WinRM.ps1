@@ -16,6 +16,22 @@ if ($netKvmInf) {
 }
 & ipconfig.exe /renew | Out-Host
 
+Write-Host "Installing QEMU Guest Agent if available..."
+$qemuGuestAgentMsi = Get-PSDrive -PSProvider FileSystem |
+  ForEach-Object { Join-Path $_.Root "guest-agent\qemu-ga-x86_64.msi" } |
+  Where-Object { Test-Path -LiteralPath $_ } |
+  Select-Object -First 1
+if ($qemuGuestAgentMsi) {
+  $process = Start-Process msiexec.exe `
+    -ArgumentList @("/i", $qemuGuestAgentMsi, "/qn", "/norestart") `
+    -Wait `
+    -PassThru
+  Write-Host "QEMU Guest Agent installer exit code: $($process.ExitCode)"
+  Get-Service -Name QEMU-GA -ErrorAction SilentlyContinue | Start-Service
+} else {
+  Write-Host "QEMU Guest Agent installer not found on mounted media."
+}
+
 Write-Host "Starting WinRM service..."
 Set-Service -Name WinRM -StartupType Automatic
 Start-Service -Name WinRM
