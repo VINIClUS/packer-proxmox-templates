@@ -102,7 +102,7 @@ source "proxmox-iso" "windows_11" {
   http_directory = abspath("${path.root}/http")
   boot_wait      = "5s"
   boot_command = [
-    "<spacebar><spacebar>"
+    "<spacebar><wait1s><spacebar><wait1s><spacebar><wait1s><spacebar><wait1s><spacebar>"
   ]
 
   communicator   = "winrm"

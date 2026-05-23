@@ -62,6 +62,9 @@ if ($packerFile -notmatch '(?s)tpm_config\s+\{\s*tpm_storage_pool\s*=\s*var\.pro
 if ($packerFile -notmatch 'boot\s*=\s*"order=sata0;ide0;scsi0"') {
     throw "Packer file must boot from the Windows ISO before the empty system disk"
 }
+if ($packerFile -notmatch '<spacebar><wait1s><spacebar>') {
+    throw "Packer file must repeat boot keypresses to catch the Windows ISO boot prompt"
+}
 if ($packerFile -notmatch '(?s)boot_iso\s+\{\s*type\s*=\s*"sata".*?iso_file\s*=\s*var\.windows_iso_file') {
     throw "Packer file must attach Windows install media as SATA so WinPE can read it before VirtIO drivers load"
 }
