@@ -3,6 +3,19 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "Installing QEMU Guest Agent for Proxmox IP discovery..."
 
+$vioSerialInf = Get-PSDrive -PSProvider FileSystem |
+  ForEach-Object { Join-Path $_.Root "vioserial\w11\amd64\vioser.inf" } |
+  Where-Object { Test-Path -LiteralPath $_ } |
+  Select-Object -First 1
+
+if ($vioSerialInf) {
+  Write-Host "Installing VirtIO serial driver from $vioSerialInf..."
+  & pnputil.exe /add-driver $vioSerialInf /install | Out-Host
+}
+else {
+  Write-Host "VirtIO serial driver was not found on mounted media."
+}
+
 $qemuGuestAgentMsi = Get-PSDrive -PSProvider FileSystem |
   ForEach-Object { Join-Path $_.Root "guest-agent\qemu-ga-x86_64.msi" } |
   Where-Object { Test-Path -LiteralPath $_ } |
@@ -26,6 +39,7 @@ if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
 $service = Get-Service -Name QEMU-GA -ErrorAction SilentlyContinue
 if ($service) {
   Set-Service -Name QEMU-GA -StartupType Automatic
+  Restart-Service -Name QEMU-GA -ErrorAction SilentlyContinue
   Start-Service -Name QEMU-GA -ErrorAction SilentlyContinue
   Write-Host "QEMU Guest Agent service started."
 }
