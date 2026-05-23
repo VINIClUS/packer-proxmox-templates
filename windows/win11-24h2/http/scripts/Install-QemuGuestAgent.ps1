@@ -3,6 +3,17 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "Installing QEMU Guest Agent for Proxmox IP discovery..."
 
+Write-Host "Finalizing WinRM network profile and HTTP settings..."
+try {
+  Get-NetConnectionProfile -ErrorAction SilentlyContinue |
+    Where-Object { $_.NetworkCategory -eq "Public" } |
+    Set-NetConnectionProfile -NetworkCategory Private
+}
+catch {
+  Write-Host "Unable to change network profile: $($_.Exception.Message)"
+}
+winrm set winrm/config/service '@{AllowUnencrypted="true"}' | Out-Host
+
 $vioSerialInf = Get-PSDrive -PSProvider FileSystem |
   ForEach-Object { Join-Path $_.Root "vioserial\w11\amd64\vioser.inf" } |
   Where-Object { Test-Path -LiteralPath $_ } |
