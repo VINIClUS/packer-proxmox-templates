@@ -125,6 +125,11 @@ if ($winrmScript -match 'Restart-Service\s+-Name\s+WinRM') {
 if ($winrmScript -match 'Get-NetConnectionProfile|Set-NetConnectionProfile') {
     throw "Configure-WinRM.ps1 must not call network profile cmdlets during specialize; they can hang setup"
 }
+foreach ($needle in @("NetKVM\w11\amd64\netkvm.inf", "pnputil.exe", "ipconfig.exe /renew")) {
+    if ($winrmScript -notmatch [regex]::Escape($needle)) {
+        throw "Configure-WinRM.ps1 must install the VirtIO network driver before WinRM: $needle"
+    }
+}
 
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
 foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "192.168.1.149:8006")) {
