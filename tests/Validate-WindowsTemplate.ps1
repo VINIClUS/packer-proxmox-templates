@@ -54,6 +54,9 @@ if ($packerFile -match 'http_directory\s*=\s*"http"') {
 if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
     throw "Packer file must use WinRM communicator"
 }
+if ($packerFile -notmatch 'pause_before_connecting\s*=\s*"2m"') {
+    throw "Packer file must pause after the first WinRM reachability check so Windows can stabilize before provisioning"
+}
 if ($packerFile -notmatch 'Install-QemuGuestAgent\.ps1') {
     throw "Packer file must include Install-QemuGuestAgent.ps1 on the generated answer ISO"
 }

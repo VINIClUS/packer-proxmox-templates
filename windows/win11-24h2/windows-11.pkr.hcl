@@ -112,6 +112,8 @@ source "proxmox-iso" "windows_11" {
   winrm_timeout  = "2h"
   winrm_use_ssl  = false
   winrm_insecure = true
+
+  pause_before_connecting = "2m"
 }
 
 build {
