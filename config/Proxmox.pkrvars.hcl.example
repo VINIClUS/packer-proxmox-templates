@@ -10,7 +10,7 @@ proxmox_insecure_skip_tls     = true
 proxmox_iso_storage_pool      = "local"
 proxmox_vm_storage_pool       = "local-lvm"
 proxmox_network_bridge        = "vmbr0"
-proxmox_vlan_tag              = 0
+# Untagged networks must omit vlan_tag. Do not use tag 0 on Proxmox 9.
 
 windows_iso_file              = "local:iso/Win11_24H2_English_x64.iso"
 windows_iso_checksum          = "none"

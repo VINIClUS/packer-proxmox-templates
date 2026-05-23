@@ -46,7 +46,7 @@ variable "proxmox_network_bridge" {
 
 variable "proxmox_vlan_tag" {
   type        = number
-  description = "Optional VLAN tag. Use 0 for untagged."
+  description = "Reserved for future tagged network support. Untagged Proxmox NICs must omit vlan_tag instead of using 0."
   default     = 0
 }
 

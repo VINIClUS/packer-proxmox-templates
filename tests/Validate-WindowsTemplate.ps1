@@ -50,6 +50,9 @@ if ($packerFile -notmatch 'communicator\s*=\s*"winrm"') {
 if ($packerFile -notmatch 'scsi_controller\s*=\s*"virtio-scsi-single"') {
     throw "Packer file must use virtio-scsi-single"
 }
+if ($packerFile -match 'vlan_tag\s*=\s*var\.proxmox_vlan_tag') {
+    throw "Packer file must not emit vlan_tag=0 for untagged networks; omit vlan_tag unless tagged networks are explicitly modeled"
+}
 if ($packerFile -match '=\s*"\$\{path\.root\}/' -or $packerFile -match '\[\s*"\$\{path\.root\}/') {
     throw "Packer file must wrap local path.root references with abspath() for reliable validation/builds"
 }

@@ -82,6 +82,8 @@ The Proxmox API token must be able to upload the generated answer ISO to the con
 Datastore.AllocateTemplate on /storage/local
 ```
 
+For untagged networking on Proxmox 9, omit `vlan_tag`; do not set `tag=0`. The current template creates an untagged VirtIO NIC on the configured bridge.
+
 ## Documentation
 
 Credential requirements are documented in `docs/credentials/windows-template-credentials.html`. Update that HTML file whenever a variable or secret requirement changes. Do not commit `config/Proxmox.pkrvars.hcl`.

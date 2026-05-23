@@ -66,7 +66,6 @@ source "proxmox-iso" "windows_11" {
   network_adapters {
     model    = "virtio"
     bridge   = var.proxmox_network_bridge
-    vlan_tag = var.proxmox_vlan_tag
     firewall = true
   }
 
