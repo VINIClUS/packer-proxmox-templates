@@ -10,8 +10,27 @@ Get-Service -Name "DiagTrack", "dmwappushservice" -ErrorAction SilentlyContinue 
     Set-Service -Name $_.Name -StartupType Disabled
   }
 
-Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+function Clear-TemplateTempDirectory {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string] $Path
+  )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    return
+  }
+
+  Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.Name -notlike "packer-*" -and
+      $_.Name -notlike "script-*" -and
+      $_.Name -notlike "winrmcp-*"
+    } |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+Clear-TemplateTempDirectory -Path $env:TEMP
+Clear-TemplateTempDirectory -Path "C:\Windows\Temp"
 foreach ($eventLog in @(wevtutil.exe el)) {
   if ([string]::IsNullOrWhiteSpace($eventLog)) {
     continue

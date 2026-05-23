@@ -155,6 +155,17 @@ foreach ($needle in @("foreach (`$eventLog in @(wevtutil.exe el))", "try", "Skip
         throw "Optimize-Template.ps1 must treat protected event logs as non-fatal: $needle"
     }
 }
+foreach ($needle in @("Clear-TemplateTempDirectory", "packer-*", "script-*", "winrmcp-*")) {
+    if ($optimizeScript -notmatch [regex]::Escape($needle)) {
+        throw "Optimize-Template.ps1 must preserve active Packer temporary files: $needle"
+    }
+}
+if ($optimizeScript -match 'Remove-Item\s+-Path\s+"\$env:TEMP\\\*"') {
+    throw "Optimize-Template.ps1 must not blanket-delete the active Packer TEMP directory"
+}
+if ($optimizeScript -match 'Remove-Item\s+-Path\s+"C:\\Windows\\Temp\\\*"') {
+    throw "Optimize-Template.ps1 must not blanket-delete the active Packer Windows Temp directory"
+}
 if ($optimizeScript -match 'wevtutil\s+el\s*\|\s*ForEach-Object\s*\{\s*wevtutil\s+cl') {
     throw "Optimize-Template.ps1 must not fail the build on a single protected event log"
 }
