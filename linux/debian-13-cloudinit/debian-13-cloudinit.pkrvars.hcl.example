@@ -1,0 +1,20 @@
+# Optional target-specific defaults for the Debian 13 cloud-init template.
+# Copy values into a local ignored vars file or pass this file to the script.
+
+vm_id                         = 9200
+vm_name                       = "debian-13-cloudinit-packer"
+template_name                 = "tpl-debian-13-cloudinit"
+template_description          = "Debian 13 trixie genericcloud cloud-init template for Proxmox."
+
+cpu_cores                     = 2
+cpu_sockets                   = 1
+memory_mb                     = 2048
+disk_size                     = "16G"
+
+debian_cloud_image_url        = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
+debian_cloud_image_directory  = "/var/lib/vz/template/qcow2"
+debian_cloud_image_file       = "debian-13-genericcloud-amd64.qcow2"
+
+cloud_init_storage_pool       = "local-lvm"
+cloud_init_user               = "debian"
+ssh_keys_file                 = ""
