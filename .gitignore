@@ -24,3 +24,5 @@ logs/*
 logs
 excalidraw.log
 packer_cache/
+id_ed25519.pub
+id_ed25519
