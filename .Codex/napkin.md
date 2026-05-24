@@ -21,7 +21,9 @@
 ## Domain Behavior Guardrails
 1. **[2026-05-22] Keep secrets out of tracked files**
    Do instead: store Proxmox credentials in ignored `config/*.pkrvars.hcl` files and track only `.example` files.
-2. **[2026-05-23] Windows 11 Proxmox media and ACL requirements**
+2. **[2026-05-23] Debian cloud images require Proxmox CLI access**
+   Do instead: create Debian cloud-init templates by SSHing to the Proxmox node and running `qm` with `import-from`; the Packer ISO/API path is not the right mechanism for importing QCOW2 cloud images.
+3. **[2026-05-23] Windows 11 Proxmox media and ACL requirements**
    Do instead: attach install/VirtIO ISOs as SATA, enable TPM 2.0, install NetKVM before WinRM, and grant `VM.GuestAgent.Audit` plus `VM.GuestAgent.Unrestricted` on the build VM.
 
 ## User Directives
