@@ -37,9 +37,31 @@ Default template settings:
 - Console: `serial0` with `vga=serial0`
 - Cloud-init defaults: DHCP on `net0`, user `debian`
 
+## Validation
+
+After creation, run:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File tests\Validate-DebianCloudInitTemplate.ps1
+```
+
+Expected result for the default target:
+
+```text
+Debian cloud-init template is valid.
+VMID: 9200
+Name: tpl-debian-13-cloudinit
+Disk: local-lvm:base-9200-disk-0,discard=on,iothread=1,size=16G,ssd=1
+Cloud-init: local-lvm:vm-9200-cloudinit,media=cdrom
+```
+
 ## Notes
 
 The script requires SSH to the Proxmox node because Proxmox cloud images are
 imported through `qm` using `import-from`. The API token remains necessary for
 Packer ISO builds, while this Debian cloud-image path uses SSH for Proxmox CLI
 operations.
+
+The PowerShell script normalizes the remote shell payload to LF before piping it
+to SSH. This avoids CRLF being interpreted as part of shell variable values by
+`bash` on the Proxmox node.
