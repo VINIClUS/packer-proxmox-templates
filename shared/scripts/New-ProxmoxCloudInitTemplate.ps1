@@ -241,7 +241,7 @@ if ($sshKey) {
 
 $target = "$sshUser@$sshHost"
 Write-Host "Creating $templateLabel cloud-init template on $target with VMID $vmId..."
-($remoteScript -replace "`r`n", "`n" -replace "`r", "`n") | & ssh @sshArgs $target "bash -s"
+(($remoteScript -replace "`r`n", "`n") -replace "`r", "`n") | & ssh @sshArgs $target "tr -d '\r' | bash -s"
 if ($LASTEXITCODE -ne 0) {
   throw "Remote Proxmox template creation failed with exit code $LASTEXITCODE."
 }
