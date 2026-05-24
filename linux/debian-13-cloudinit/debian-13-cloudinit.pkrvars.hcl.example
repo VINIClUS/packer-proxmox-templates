@@ -11,9 +11,14 @@ cpu_sockets                   = 1
 memory_mb                     = 2048
 disk_size                     = "16G"
 
-debian_cloud_image_url        = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
-debian_cloud_image_directory  = "/var/lib/vz/template/qcow2"
-debian_cloud_image_file       = "debian-13-genericcloud-amd64.qcow2"
+template_label                = "Debian 13"
+template_tags                 = "debian;trixie;cloudinit;template"
+
+cloud_image_url               = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2"
+cloud_image_directory         = "/var/lib/vz/template/qcow2"
+cloud_image_file              = "debian-13-genericcloud-amd64.qcow2"
+cloud_image_checksum_file     = "SHA512SUMS"
+cloud_image_checksum_type     = "sha512"
 
 cloud_init_storage_pool       = "local-lvm"
 cloud_init_user               = "debian"

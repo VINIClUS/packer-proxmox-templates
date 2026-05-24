@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "../../..")
 if (-not $TargetVarsFile) {
-  $TargetVarsFile = Join-Path $root "linux/debian-13-cloudinit/debian-13-cloudinit.pkrvars.hcl.example"
+  $TargetVarsFile = Join-Path $root "linux/ubuntu-26.04-cloudinit/ubuntu-26.04-cloudinit.pkrvars.hcl.example"
 }
 
 $arguments = @{
