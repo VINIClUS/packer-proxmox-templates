@@ -26,59 +26,59 @@ Resolved Linux installer target:
 
 - [x] Replace or populate `Setup.md` with the actual spec.
 - [x] Identify exact phase 0-3 deliverables from the spec text.
-- [ ] Mark every action as read-only, safe-change, or disruptive-change.
-- [ ] Confirm whether nginx, firewall, network, CT, or VM changes are allowed in any later phase.
-- [ ] Confirm rollback requirements: backups, snapshots, or full config export.
+- [x] Mark every action as read-only, safe-change, or disruptive-change.
+- [ ] Confirm whether nginx, firewall, network, CT, or VM changes are allowed in any later phase. Current state: not approved; keep blocked.
+- [x] Confirm rollback requirements: backups, snapshots, or full config export. Current state: documented as required before live changes.
 - [x] Record PEC 5.4.37 release source and Linux installer URL.
 - [x] Add a local installer acquisition script with dry-run support and
   post-download SHA-256 reporting.
 
 ## Phase 1: Inventory Validation
 
-- [ ] Re-run read-only inventory against Proxmox:
+- [x] Re-run read-only inventory against Proxmox:
 
 ```powershell
 rtk ssh root@192.168.1.149 "pveversion && qm list && pct list && pvesm status"
 ```
 
-- [ ] Export VM configs with `qm config <vmid>` for all affected VMIDs.
-- [ ] Export CT configs with `pct config <ctid>` for all affected CTIDs.
-- [ ] If approved, inspect CT `110` nginx internally with read-only commands only:
+- [x] Export VM configs with `qm config <vmid>` for all affected VMIDs.
+- [x] Export CT configs with `pct config <ctid>` for all affected CTIDs.
+- [x] Inspect CT `110` nginx internally with read-only commands only:
 
 ```bash
-nginx -T
+nginx -t
 systemctl status nginx --no-pager
 ss -tulpn
 ```
 
-- [ ] Confirm whether e-SUS PEC is on VM `101 ESUS-TESTE`, CT `120`, or another guest.
-- [ ] Locate any staged `eSUS-AB-PEC-*.jar` without executing it.
-- [ ] If an installer is staged, record byte size and SHA-256.
-- [ ] Use `shared/scripts/Get-EsusPecInstaller.ps1 -DryRun` before any approved
+- [ ] Confirm whether e-SUS PEC is on VM `101 ESUS-TESTE`, CT `120`, or another guest. Current evidence: CT `120` is `infisical`; VM `101` is likely target but stopped.
+- [x] Locate any staged `eSUS-AB-PEC-*.jar` without executing it.
+- [x] If an installer is staged, record byte size and SHA-256. Current state: no installer found, so no hash exists.
+- [x] Use `shared/scripts/Get-EsusPecInstaller.ps1 -DryRun` before any approved
   download.
 
 ## Phase 2: Risk and Rollback Design
 
-- [ ] Create a before-change evidence bundle from Proxmox configs.
-- [ ] Define exact rollback commands, but do not execute them until implementation is approved.
+- [x] Create a before-change evidence bundle from Proxmox configs.
+- [x] Define exact rollback commands, but do not execute them until implementation is approved.
 - [ ] Confirm maintenance window for anything that may touch CT `100`, `110`, `120`, networking, or firewall.
-- [ ] Confirm whether protected CT `120` must be excluded from automation.
+- [ ] Confirm whether protected CT `120` must be excluded from automation. Current evidence: CT `120` has `protection: 1`; exclude until explicitly approved.
 
 ## Phase 3: Implementation Package
 
-- [ ] Convert the populated spec into a task list with one change per commit.
-- [ ] Add tests or validation scripts before implementation.
+- [x] Convert the populated spec into a task list with one change per commit.
+- [x] Add tests or validation scripts before implementation.
 - [x] Add local validation for e-SUS PEC release/spec documentation.
-- [ ] Prepare dry-run commands where supported.
-- [ ] Stop before any live change and request explicit approval.
+- [x] Prepare dry-run commands where supported.
+- [x] Stop before any live change and request explicit approval.
 - [ ] After approval, apply changes atomically and validate after each step.
 
 ## Validation Gates
 
 Before any future non-read-only implementation:
 
-- [ ] Spec file is non-empty and reviewed.
-- [ ] Inventory is refreshed.
-- [ ] Affected resources are explicitly listed.
-- [ ] Rollback is documented.
+- [x] Spec file is non-empty and reviewed.
+- [x] Inventory is refreshed.
+- [x] Affected resources are explicitly listed.
+- [x] Rollback is documented.
 - [ ] User approves the transition out of read-only mode.
