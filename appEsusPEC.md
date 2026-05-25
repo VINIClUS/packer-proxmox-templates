@@ -1,6 +1,7 @@
 # app e-SUS PEC Source Notes
 
 Source: <https://gemini.google.com/share/bbe9ab81eadb>
+Official release source: <https://sisaps.saude.gov.br/sistemas/esusaps/blog/versao-5-4-37/>
 Read date: 2026-05-25
 Mode: source extraction only; no infrastructure changes were executed.
 
@@ -23,6 +24,8 @@ handling practical installation and recovery issues observed during setup.
 | APP-REQ-008 | Restore can include both database and media/attachment directories. | Source mentions backup archives containing database plus `galeria`/media files. | Setup must inventory app paths and media directories before restore. |
 | APP-REQ-009 | Disk expansion in Proxmox may require guest partition/filesystem growth. | Source covers `growpart`, `resize2fs`, rescan and blocked swap partition cases. | Setup must include storage preflight and avoid partition edits without approved maintenance window. |
 | APP-REQ-010 | If partition-based swap blocks expansion, a swapfile may be safer than repartitioning. | Source recommends `/swapfile` when MBR primary partition slots are exhausted. | Setup must document swapfile as the preferred low-risk option after root FS expansion. |
+| APP-REQ-011 | The approved PEC release target is 5.4.37, published by the Ministry of Health on 2026-05-15. | Official e-SUS APS release page states version 5.4.37 and publication date. | Setup must use 5.4.37 as the current target unless a newer official release is explicitly selected. |
+| APP-REQ-012 | PEC installers must be obtained from the official page/download targets and verified before execution. | The official page exposes Windows and Linux installer buttons that resolve to versioned `.jar` files. | Download may be staged, but installer execution requires explicit approval, hash recording, backup, and maintenance window. |
 
 ## Non-Destructive Discovery Commands
 
@@ -40,6 +43,16 @@ ss -lntup
 find /opt /srv /var/www -maxdepth 3 -type f 2>/dev/null | head -200
 ```
 
+## Official PEC 5.4.37 Download Targets
+
+Do not execute these installers during read-only phases. If they are downloaded,
+record the local path, size, and SHA-256 hash before any execution.
+
+```text
+Windows: https://arquivos.esusaps.ufsc.br/PEC/687651a247e537a3/5.4.37/eSUS-AB-PEC-5.4.37-Win64.jar
+Linux:   https://arquivos.esusaps.ufsc.br/PEC/687651a247e537a3/5.4.37/eSUS-AB-PEC-5.4.37-Linux64.jar
+```
+
 ## Destructive or Disruptive Actions Requiring Explicit Approval
 
 - Stopping e-SUS PEC, WildFly, Tomcat, PostgreSQL, nginx, CTs, VMs, or network services.
@@ -51,7 +64,8 @@ find /opt /srv /var/www -maxdepth 3 -type f 2>/dev/null | head -200
 
 ## Pending Confirmations
 
-- Exact e-SUS PEC version and installer filename.
+- Confirm whether PEC 5.4.37 is the desired production target at execution time.
+- Local download path, file size, and SHA-256 hash for the selected installer.
 - Whether the installer supports `-console`.
 - Actual service name: `esus`, `wildfly`, `tomcat`, another unit, or manual script.
 - PostgreSQL version and whether e-SUS uses bundled or system PostgreSQL.

@@ -55,7 +55,26 @@ proxy:
   e, se swap em partição bloquear crescimento, preferir swapfile após aprovação.
 ```
 
-### 1.2 Correções de inventário conhecidas
+### 1.2 Versao alvo oficial do PEC
+
+Versao alvo atual do PEC: `5.4.37`, publicada pelo Ministerio da Saude em
+2026-05-15. A pagina oficial da versao e:
+
+```text
+https://sisaps.saude.gov.br/sistemas/esusaps/blog/versao-5-4-37/
+```
+
+Downloads oficiais extraidos da pagina:
+
+```text
+Windows: https://arquivos.esusaps.ufsc.br/PEC/687651a247e537a3/5.4.37/eSUS-AB-PEC-5.4.37-Win64.jar
+Linux:   https://arquivos.esusaps.ufsc.br/PEC/687651a247e537a3/5.4.37/eSUS-AB-PEC-5.4.37-Linux64.jar
+```
+
+Nao executar o `.jar` em fase read-only. Se o instalador for baixado, registrar
+caminho local, tamanho e SHA-256 antes de qualquer execucao.
+
+### 1.3 Correções de inventário conhecidas
 
 O inventário read-only de 2026-05-25 registrou os nomes atuais observados no
 Proxmox:
@@ -261,6 +280,10 @@ APP-REQ-008 -> inventariar banco e mídias/galeria antes de restore.
 APP-REQ-009 -> inventariar disco, partições e filesystem antes de expansão.
 APP-REQ-010 -> preferir swapfile como alternativa segura quando partição swap
 bloquear expansão e reparticionamento for arriscado.
+APP-REQ-011 -> usar PEC 5.4.37 como alvo atual conforme fonte oficial de
+2026-05-15, salvo confirmação explícita de versão mais nova.
+APP-REQ-012 -> baixar instalador apenas por fonte oficial, registrar hash e
+exigir aprovação antes de executar o `.jar`.
 ```
 
 Esses itens devem aparecer em `01-inventario-proxmox.md`,
@@ -490,6 +513,7 @@ systemctl --type=service --state=running
 ss -lntup
 find /opt /srv /var/www /home -maxdepth 3 -type f 2>/dev/null | head -300
 find /opt /srv /var/www /home -maxdepth 4 \( -iname "*.backup" -o -iname "*.sql" -o -iname "*.zip" -o -iname "*.tar.gz" \) 2>/dev/null | head -200
+find /opt /srv /var/www /home -maxdepth 4 \( -iname "eSUS-AB-PEC-*.jar" -o -iname "*PEC*.jar" \) 2>/dev/null | head -100
 ```
 
 Identificar e documentar sem revelar segredos:
@@ -497,6 +521,8 @@ Identificar e documentar sem revelar segredos:
 ```text
 - versão do Java;
 - se existe instalador `.jar` do e-SUS PEC;
+- se o instalador local corresponde ao alvo `5.4.37`, quando existir;
+- tamanho e SHA-256 do instalador, sem executá-lo;
 - se há modo `-console` documentado ou testável sem executar instalação;
 - versão do PostgreSQL;
 - comandos `psql` e `pg_restore` disponíveis;
@@ -592,7 +618,8 @@ Gerar uma seção “Pendências de confirmação”:
 - IP interno do CT 120;
 - porta interna da aplicação no CT 120;
 - se o alvo real é o CT 120 ou a VM 101 ESUS-TESTE;
-- versão do e-SUS PEC;
+- versão do e-SUS PEC: alvo atual `5.4.37`; confirmar antes de executar;
+- caminho local, tamanho e SHA-256 do instalador PEC selecionado;
 - caminho de instalação do e-SUS PEC;
 - serviço real da aplicação (`esus`, `wildfly`, `tomcat` ou outro);
 - versão e modo de autenticação do PostgreSQL;

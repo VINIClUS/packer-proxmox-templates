@@ -2,25 +2,36 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prepare a safe implementation path for the missing setup specification without changing live Proxmox services during the read-only assessment.
+**Goal:** Prepare a safe implementation path for e-SUS PEC 5.4.37 without changing live Proxmox services during the read-only assessment.
 
-**Architecture:** Treat the current Proxmox node as an existing live environment with running infrastructure CTs and reusable golden-image templates. Implementation must be staged, reversible, and preceded by explicit confirmation because the requested spec file is empty.
+**Architecture:** Treat the current Proxmox node as an existing live environment with running infrastructure CTs and reusable golden-image templates. Implementation must be staged, reversible, and preceded by explicit confirmation before any live infrastructure change.
 
 **Tech Stack:** Proxmox VE 9.1.1, QEMU VMs, LXC CTs, cloud-init templates, PowerShell orchestration, SSH read-only validation.
 
 ---
 
-## Current Blocker
+## Current Status
 
-`Setup.md` is empty (`0` bytes) and no file named `SPEC Setup.md` exists in the repository. The phases below are therefore a safe execution framework, not an implementation of unknown spec requirements.
+`Setup.md` is populated and references the e-SUS PEC source notes in
+`appEsusPEC.md`. The current PEC target is `5.4.37`, published on 2026-05-15 by
+the Ministry of Health.
+
+Official release page:
+<https://sisaps.saude.gov.br/sistemas/esusaps/blog/versao-5-4-37/>
+
+Resolved Linux installer target:
+<https://arquivos.esusaps.ufsc.br/PEC/687651a247e537a3/5.4.37/eSUS-AB-PEC-5.4.37-Linux64.jar>
 
 ## Phase 0: Spec Intake and Freeze
 
-- [ ] Replace or populate `Setup.md` with the actual spec.
-- [ ] Identify exact phase 0-3 deliverables from the spec text.
+- [x] Replace or populate `Setup.md` with the actual spec.
+- [x] Identify exact phase 0-3 deliverables from the spec text.
 - [ ] Mark every action as read-only, safe-change, or disruptive-change.
 - [ ] Confirm whether nginx, firewall, network, CT, or VM changes are allowed in any later phase.
 - [ ] Confirm rollback requirements: backups, snapshots, or full config export.
+- [x] Record PEC 5.4.37 release source and Linux installer URL.
+- [x] Add a local installer acquisition script with dry-run support and
+  post-download SHA-256 reporting.
 
 ## Phase 1: Inventory Validation
 
@@ -40,6 +51,12 @@ systemctl status nginx --no-pager
 ss -tulpn
 ```
 
+- [ ] Confirm whether e-SUS PEC is on VM `101 ESUS-TESTE`, CT `120`, or another guest.
+- [ ] Locate any staged `eSUS-AB-PEC-*.jar` without executing it.
+- [ ] If an installer is staged, record byte size and SHA-256.
+- [ ] Use `shared/scripts/Get-EsusPecInstaller.ps1 -DryRun` before any approved
+  download.
+
 ## Phase 2: Risk and Rollback Design
 
 - [ ] Create a before-change evidence bundle from Proxmox configs.
@@ -51,6 +68,7 @@ ss -tulpn
 
 - [ ] Convert the populated spec into a task list with one change per commit.
 - [ ] Add tests or validation scripts before implementation.
+- [x] Add local validation for e-SUS PEC release/spec documentation.
 - [ ] Prepare dry-run commands where supported.
 - [ ] Stop before any live change and request explicit approval.
 - [ ] After approval, apply changes atomically and validate after each step.
