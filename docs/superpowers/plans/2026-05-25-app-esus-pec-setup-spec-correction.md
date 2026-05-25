@@ -12,9 +12,9 @@
 
 ## Current Evidence
 
-- `appEsusPEC.md` exists in the repository root and is `0` bytes.
-- `Setup.md` exists in the repository root and is `0` bytes.
-- No alternate app e-SUS, PEC, setup, or spec markdown file was found by `rg --files`.
+- `appEsusPEC.md` now contains extracted source notes from the shared Gemini URL.
+- `Setup.md` now contains a full Proxmox app-platform specification.
+- The Gemini source is accessible through Playwright text extraction; direct `web.open` exposes only the Gemini sign-in shell.
 - Existing read-only inventory artifacts are under `docs/setup-readonly/`.
 
 ## File Responsibilities
@@ -200,4 +200,4 @@ rtk git commit -m "Correct app e-SUS PEC setup specification"
 
 ## Current Status
 
-Blocked before Task 1 completion because `appEsusPEC.md` is empty. The next required action is to populate `appEsusPEC.md` with the actual upstream app e-SUS PEC requirements.
+Task 1 source validation is unblocked. `appEsusPEC.md` has been populated with extracted requirements, and `Setup.md` has been corrected to include app e-SUS PEC-specific discovery, risk, rollback, PostgreSQL, backup/restore, disk, and swap requirements. Next implementation work must remain gated by the stop conditions in `Setup.md`, especially the prohibition on service, firewall, network, CT, or VM changes without explicit approval.
