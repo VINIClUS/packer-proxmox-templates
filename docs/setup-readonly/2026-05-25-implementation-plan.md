@@ -71,7 +71,19 @@ ss -tulpn
 - [x] Add local validation for e-SUS PEC release/spec documentation.
 - [x] Prepare dry-run commands where supported.
 - [x] Stop before any live change and request explicit approval.
-- [ ] After approval, apply changes atomically and validate after each step.
+- [x] After approval, apply changes atomically and validate after each step. Current approved scope: new VM `102` only; VM `101` and CT `100` were not modified.
+
+## Phase 4: Isolated Test VM Bootstrap
+
+- [x] Create isolated Debian test VM `102 test-esus-pec-5437` from template `9200`.
+- [x] Keep VM `101 ESUS-TESTE` read-only and unmodified.
+- [x] Keep CT `100 Netbird` untouched.
+- [x] Install test prerequisites on VM `102`: Java, PostgreSQL client tools,
+  qemu guest agent, `file`, and `unzip`.
+- [x] Stage PEC 5.4.37 Linux installer on VM `102`.
+- [x] Validate installer SHA-256 on local host and VM.
+- [x] Smoke-test installer `-console` path as non-root to avoid installation.
+- [x] Document required Infisical secret placeholders without storing values.
 
 ## Validation Gates
 
@@ -81,4 +93,4 @@ Before any future non-read-only implementation:
 - [x] Inventory is refreshed.
 - [x] Affected resources are explicitly listed.
 - [x] Rollback is documented.
-- [ ] User approves the transition out of read-only mode.
+- [x] User approves the transition out of read-only mode for smallest safe implementation.
