@@ -85,6 +85,18 @@ ss -tulpn
 - [x] Smoke-test installer `-console` path as non-root to avoid installation.
 - [x] Document required Infisical secret placeholders without storing values.
 
+## Phase 5: Clean Installer Run
+
+- [x] Create clean Debian test VM `104 test-esus-pec-clean104-5437`.
+- [x] Keep VM `101 ESUS-TESTE` read-only and unmodified.
+- [x] Keep CT `100 Netbird` untouched.
+- [x] Install only Java headless and generate `pt_BR.UTF-8` before first PEC run.
+- [x] Avoid external PostgreSQL packages; use PEC bundled PostgreSQL only.
+- [x] Install PEC 5.4.37 with `sudo java -jar ... -console -continue`.
+- [x] Validate `e-SUS-AB-PostgreSQL.service` and `e-SUS-PEC.service` running.
+- [x] Validate HTTP `200` on `http://192.168.1.204:8080/`.
+- [x] Locate `credenciais.txt`, restrict it to mode `600`, and document Infisical follow-up without exposing values.
+
 ## Validation Gates
 
 Before any future non-read-only implementation:
