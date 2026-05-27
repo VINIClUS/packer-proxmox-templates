@@ -19,11 +19,13 @@
    Do instead: prefix repository commands with `rtk`, including git and validation commands.
 
 ## Domain Behavior Guardrails
-1. **[2026-05-22] Keep secrets out of tracked files**
+1. **[2026-05-27] e-SUS PEC LXC needs `RemoveIPC=no`**
+   Do instead: before the first PEC installer run in LXC, set `/etc/systemd/logind.conf.d/99-esus-pec-postgresql.conf` with `RemoveIPC=no`; the bundled PostgreSQL 9.6 uses SysV semaphores and the installer creates `postgres` as UID 1000.
+2. **[2026-05-22] Keep secrets out of tracked files**
    Do instead: store Proxmox credentials in ignored `config/*.pkrvars.hcl` files and track only `.example` files.
-2. **[2026-05-23] Debian cloud images require Proxmox CLI access**
+3. **[2026-05-23] Debian cloud images require Proxmox CLI access**
    Do instead: create Debian cloud-init templates by SSHing to the Proxmox node and running `qm` with `import-from`; the Packer ISO/API path is not the right mechanism for importing QCOW2 cloud images.
-3. **[2026-05-23] Windows 11 Proxmox media and ACL requirements**
+4. **[2026-05-23] Windows 11 Proxmox media and ACL requirements**
    Do instead: attach install/VirtIO ISOs as SATA, enable TPM 2.0, install NetKVM before WinRM, and grant `VM.GuestAgent.Audit` plus `VM.GuestAgent.Unrestricted` on the build VM.
 
 ## User Directives
