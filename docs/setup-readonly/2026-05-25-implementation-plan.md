@@ -97,6 +97,17 @@ ss -tulpn
 - [x] Validate HTTP `200` on `http://192.168.1.204:8080/`.
 - [x] Locate `credenciais.txt`, restrict it to mode `600`, and document Infisical follow-up without exposing values.
 
+## Phase 6: LXC Conversion Validation
+
+- [x] Create an isolated Debian 13 LXC test path without modifying VM `101 ESUS-TESTE` or CT `100 Netbird`.
+- [x] Prove that LXC probes without `RemoveIPC=no` fail during bundled PostgreSQL 9.6 migration with `semctl(... SETVAL ...) failed`.
+- [x] Implement reusable LXC scripts in `scripts/esus-pec/bootstrap-lxc.sh` and `scripts/esus-pec/install-lxc.sh`.
+- [x] Install PEC 5.4.37 successfully in unprivileged CT `133 esus-pec-lxc-5437`.
+- [x] Keep only minimal bootstrap packages: `default-jre-headless` and `locales`; avoid external PostgreSQL packages.
+- [x] Validate `e-SUS-AB-PostgreSQL.service` and `e-SUS-PEC.service` running.
+- [x] Validate HTTP `200` on `http://192.168.1.209:8080/`.
+- [x] Locate `credenciais.txt`, restrict it to mode `600`, and document Infisical follow-up without exposing values.
+
 ## Validation Gates
 
 Before any future non-read-only implementation:
