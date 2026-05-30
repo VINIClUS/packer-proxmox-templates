@@ -108,6 +108,15 @@ ss -tulpn
 - [x] Validate HTTP `200` on `http://192.168.1.209:8080/`.
 - [x] Locate `credenciais.txt`, restrict it to mode `600`, and document Infisical follow-up without exposing values.
 
+## Phase 7: First-Run Web Wizard Automation
+
+- [x] Inspect the three PEC first-run wizard steps on CT `133` through port `8080`.
+- [x] Capture the final GraphQL `Instalar` mutation with a snapshot/rollback probe instead of committing synthetic data.
+- [x] Document required variables for installation identity, installation URL/type, installer CPF/name, and initial password.
+- [x] Add `scripts/esus-pec/Invoke-EsusPecFirstRunConfig.ps1` with dry-run by default and explicit `-Apply` for submission.
+- [x] Update Infisical `.example` and HTML credential documentation for first-run variables.
+- [x] Add validation coverage for first-run automation artifacts and secret redaction.
+
 ## Validation Gates
 
 Before any future non-read-only implementation:
