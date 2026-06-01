@@ -84,10 +84,16 @@ Synthetic probe result: PEC rejected `http://teste.local` with `Não foi possív
 
 ## Automation Script
 
-Script:
+Primary script:
 
 ```powershell
 scripts/esus-pec/Invoke-EsusPecFirstRunConfig.ps1
+```
+
+JSON wrapper for temporary Infisical exports:
+
+```powershell
+scripts/esus-pec/Invoke-EsusPecFirstRunConfigFromJson.ps1
 ```
 
 Dry-run example:
@@ -109,7 +115,9 @@ Apply example:
 ./scripts/esus-pec/Invoke-EsusPecFirstRunConfig.ps1 -Apply
 ```
 
-The script does not print the password in dry-run output. Real values belong in Infisical under `/esus-pec/test-lxc` or the approved production path.
+The script does not print the password in dry-run output. Real values belong in Infisical under the approved project/folder path or the approved production path.
+
+For CT `133`, the 2026-06-01 unattended apply used Infisical project `esus-pec`, environment `dev`, folder `/test/InstallationConfig`, and `-BaseUrl http://192.168.1.209:8080`.
 
 ## Validation And Rollback
 

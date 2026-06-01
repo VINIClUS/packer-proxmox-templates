@@ -107,7 +107,7 @@ if (-not $Apply) {
   Write-Host "Target: $BaseUrl/api/graphql"
   Write-Host "Sanitized input:"
   $sanitizedInput | ConvertTo-Json -Depth 10
-  exit 0
+  return
 }
 
 $headers = @{
@@ -119,8 +119,9 @@ $headers = @{
 $uri = ($BaseUrl.TrimEnd('/')) + "/api/graphql"
 $json = $requestBody | ConvertTo-Json -Depth 20 -Compress
 $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $json
+$errorProperty = $response.PSObject.Properties["errors"]
 
-if ($response.errors) {
+if ($errorProperty -and $errorProperty.Value) {
   $safeErrors = $response.errors | ConvertTo-Json -Depth 20
   throw "e-SUS PEC first-run configuration failed: $safeErrors"
 }
