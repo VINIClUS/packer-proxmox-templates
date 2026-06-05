@@ -50,6 +50,7 @@ $requiredFragments = @(
   "values were not printed",
   "Runtime values target <code>/test</code>",
   "nonDryRunBlockedBy=/test/InstallationConfig create/delete permission",
+  "requiredPolicyPath=/test/InstallationConfig",
   "expectedDuplicateNames=0",
   "expectedMisplacedTestKeys=0"
 )

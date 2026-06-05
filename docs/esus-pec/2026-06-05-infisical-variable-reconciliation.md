@@ -9,7 +9,7 @@ Prepared reconciliation for the e-SUS PEC Infisical project `esus-pec`, environm
 /test/InstallationConfig
 ```
 
-The older documented `/esus-pec/test` paths returned `404` and were not used. The current token can read both target paths and can write `/test`, but non-dry-run apply is blocked until the token can create and delete secrets directly at `/test/InstallationConfig`.
+The older documented `/esus-pec/test` paths returned `404` and were not used. The current token can read both target paths and can write `/test`, but non-dry-run apply is blocked until the token can create and delete secrets directly at `/test/InstallationConfig`. The replacement token exposes create policies for `/test/InstallationConfig/*`, but Infisical does not treat that glob as permission to create secrets in the exact `/test/InstallationConfig` folder.
 
 ## Implementation
 
@@ -55,6 +55,8 @@ Current validation result:
 currentTestSecretCount=20
 currentInstallationConfigSecretCount=0
 nonDryRunBlockedBy=/test/InstallationConfig create/delete permission
+observedPolicyGlob=/test/InstallationConfig/*
+requiredPolicyPath=/test/InstallationConfig
 secretsMoved=0
 secretValuesPrinted=0
 ```
