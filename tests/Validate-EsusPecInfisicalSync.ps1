@@ -49,8 +49,9 @@ $requiredFragments = @(
   "deletedCount",
   "values were not printed",
   "Runtime values target <code>/test</code>",
-  "nonDryRunBlockedBy=/test create/delete permission",
-  "expectedDuplicateNames=0"
+  "nonDryRunBlockedBy=/test/InstallationConfig create/delete permission",
+  "expectedDuplicateNames=0",
+  "expectedMisplacedTestKeys=0"
 )
 
 foreach ($fragment in $requiredFragments) {

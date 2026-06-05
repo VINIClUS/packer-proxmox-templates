@@ -9,7 +9,7 @@ Prepared reconciliation for the e-SUS PEC Infisical project `esus-pec`, environm
 /test/InstallationConfig
 ```
 
-The older documented `/esus-pec/test` paths returned `404` and were not used. The current token can read both target paths, but non-dry-run apply is blocked until the token can create and delete secrets directly at `/test`.
+The older documented `/esus-pec/test` paths returned `404` and were not used. The current token can read both target paths and can write `/test`, but non-dry-run apply is blocked until the token can create and delete secrets directly at `/test/InstallationConfig`.
 
 ## Implementation
 
@@ -19,7 +19,7 @@ The reusable sync script is:
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/esus-pec/Sync-EsusPecInfisicalVariables.ps1
 ```
 
-It reads Proxmox SSH settings from `config/Proxmox.pkrvars.hcl`, reads CT `133` database credentials from `/opt/e-SUS/webserver/config/credenciais.txt`, reuses the first-run installer credential as the current admin credential, and reconciles expected variables in Infisical. A non-dry-run sync first performs a create/delete probe on each target path so source secrets are not deleted when a destination path is not writable.
+It reads Proxmox SSH settings from `config/Proxmox.pkrvars.hcl`, reads CT `133` database credentials from `/opt/e-SUS/webserver/config/credenciais.txt`, reuses the first-run installer credential as the current admin credential, recovers installation values that were temporarily placed in `/test`, and reconciles expected variables in Infisical. A non-dry-run sync first performs a create/delete probe on each target path so source secrets are not deleted when a destination path is not writable.
 
 Values were not printed to the console, Git, or documentation.
 
@@ -47,14 +47,14 @@ Values were not printed to the console, Git, or documentation.
 
 ## Reconciliation Result
 
-Before this correction, runtime variables had been consolidated under `/test/InstallationConfig`. The corrected sync prepares runtime variables for `/test`, adds the read-only database user from `credenciais.txt`, and removes duplicate runtime variables from `/test/InstallationConfig` after the runtime path is writable.
+Before this correction, runtime variables and a small set of installation variables were present in `/test`, while `/test/InstallationConfig` was empty. The corrected sync prepares runtime variables for `/test`, adds the read-only database user from `credenciais.txt`, restores installation variables to `/test/InstallationConfig`, and removes misplaced installation variables and legacy read-only names from `/test` after the installation path is writable.
 
 Current validation result:
 
 ```text
-currentTestSecretCount=0
-currentInstallationConfigSecretCount=62
-nonDryRunBlockedBy=/test create/delete permission
+currentTestSecretCount=20
+currentInstallationConfigSecretCount=0
+nonDryRunBlockedBy=/test/InstallationConfig create/delete permission
 secretsMoved=0
 secretValuesPrinted=0
 ```
@@ -66,6 +66,7 @@ expectedRuntimeCount=15
 expectedInstallationCount=49
 expectedTotalKeys=64
 expectedDuplicateNames=0
+expectedMisplacedTestKeys=0
 postSyncDryRunCreatedCount=0
 postSyncDryRunDeletedCount=0
 ```

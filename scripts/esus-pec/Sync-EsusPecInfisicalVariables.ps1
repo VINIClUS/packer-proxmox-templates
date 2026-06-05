@@ -174,6 +174,23 @@ function Add-Expected {
   $Target[$Name] = $Value
 }
 
+function Get-ExistingSecretValue {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][hashtable]$Primary,
+    [Parameter(Mandatory = $true)][hashtable]$Fallback,
+    [AllowEmptyString()][string]$Default = ""
+  )
+
+  if ($Primary.ContainsKey($Name)) {
+    return [string]$Primary[$Name]
+  }
+  if ($Fallback.ContainsKey($Name)) {
+    return [string]$Fallback[$Name]
+  }
+  return $Default
+}
+
 function Get-RemotePecDatabaseValues {
   param(
     [Parameter(Mandatory = $true)][string]$Target,
@@ -246,6 +263,13 @@ Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD
 Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD" -Value ""
 
 $expectedInstall = @{}
+$installValueAliases = @{
+  ESUS_PEC_BASE_URL = "ESUS_PEC_EXTERNAL_BASE_URL"
+  ESUS_PEC_INITIAL_PASSWORD = "ESUS_PEC_ADMIN_PASSWORD"
+  ESUS_PEC_INSTALLATION_URL = "ESUS_PEC_EXTERNAL_BASE_URL"
+  ESUS_PEC_INSTALLER_CPF = "ESUS_PEC_ADMIN_USERNAME"
+}
+
 foreach ($name in @(
     "ESUS_PEC_BASE_URL",
     "ESUS_PEC_INITIAL_PASSWORD",
@@ -263,7 +287,11 @@ foreach ($name in @(
     "ESUS_PEC_TLS_PRIVATE_KEY_PEM",
     "ESUS_PEC_TLS_TERMINATION"
   )) {
-  Add-Expected -Target $expectedInstall -Name $name -Value $existingInstall[$name]
+  $value = Get-ExistingSecretValue -Name $name -Primary $existingInstall -Fallback $existingRuntime
+  if (($value -eq "") -and $installValueAliases.ContainsKey($name)) {
+    $value = Get-ExistingSecretValue -Name $installValueAliases[$name] -Primary $existingInstall -Fallback $existingRuntime
+  }
+  Add-Expected -Target $expectedInstall -Name $name -Value $value
 }
 
 $installDefaults = [ordered]@{
@@ -304,12 +332,21 @@ $installDefaults = [ordered]@{
 }
 
 foreach ($entry in $installDefaults.GetEnumerator()) {
-  Add-Expected -Target $expectedInstall -Name $entry.Key -Value $entry.Value
+  $value = Get-ExistingSecretValue -Name $entry.Key -Primary $existingInstall -Fallback $existingRuntime -Default $entry.Value
+  Add-Expected -Target $expectedInstall -Name $entry.Key -Value $value
 }
 
 $runtimeAllowed = [string[]]$expectedRuntime.Keys
 $installAllowed = [string[]]$expectedInstall.Keys
 $combinedAllowed = @($runtimeAllowed + $installAllowed | Sort-Object -Unique)
+$preserveSourceValueOnMove = @(
+  "ESUS_PEC_SMTP_HOST",
+  "ESUS_PEC_SMTP_PORT",
+  "ESUS_PEC_SMTP_USERNAME",
+  "ESUS_PEC_SMTP_PASSWORD",
+  "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD",
+  "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD"
+)
 
 if ($sameSecretPath) {
   $runtimeExtra = @()
@@ -329,7 +366,11 @@ foreach ($entry in $expectedRuntime.GetEnumerator()) {
     if ($existingInstall.ContainsKey($entry.Key)) { $deleted.Add("$InstallationSecretPath/$($entry.Key)") }
   } else {
     if (-not $existingRuntime.ContainsKey($entry.Key) -and $existingInstall.ContainsKey($entry.Key)) {
-      Move-InfisicalSecret -SourcePath $InstallationSecretPath -TargetPath $RuntimeSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers
+      $moveValue = [string]$entry.Value
+      if ($entry.Key -in $preserveSourceValueOnMove) {
+        $moveValue = [string]$existingInstall[$entry.Key]
+      }
+      Move-InfisicalSecret -SourcePath $InstallationSecretPath -TargetPath $RuntimeSecretPath -Name $entry.Key -Value $moveValue -Headers $headers
       $created.Add("$RuntimeSecretPath/$($entry.Key)")
       $deleted.Add("$InstallationSecretPath/$($entry.Key)")
     } else {
