@@ -2,14 +2,14 @@
 
 ## Scope
 
-Prepared reconciliation for the e-SUS PEC Infisical project `esus-pec`, environment `dev`, using the target folder layout:
+Reconciled the e-SUS PEC Infisical project `esus-pec`, environment `dev`, using the folder layout:
 
 ```text
 /test
 /test/InstallationConfig
 ```
 
-The older documented `/esus-pec/test` paths returned `404` and were not used. The current token can read both target paths and can write `/test`, but non-dry-run apply is blocked until the token can create and delete secrets directly at `/test/InstallationConfig`. The replacement token exposes create policies for `/test/InstallationConfig/*`, but Infisical does not treat that glob as permission to create secrets in the exact `/test/InstallationConfig` folder.
+The older documented `/esus-pec/test` paths returned `404` and were not used. After token correction, the sync applied successfully to both `/test` and `/test/InstallationConfig`.
 
 ## Implementation
 
@@ -47,23 +47,13 @@ Values were not printed to the console, Git, or documentation.
 
 ## Reconciliation Result
 
-Before this correction, runtime variables and a small set of installation variables were present in `/test`, while `/test/InstallationConfig` was empty. The corrected sync prepares runtime variables for `/test`, adds the read-only database user from `credenciais.txt`, restores installation variables to `/test/InstallationConfig`, and removes misplaced installation variables and legacy read-only names from `/test` after the installation path is writable.
+Before this correction, runtime variables and a small set of installation variables were present in `/test`, and runtime duplicates were also present in `/test/InstallationConfig`. The corrected sync moved ownership to the intended paths, added the read-only database user from `credenciais.txt`, and removed misplaced installation variables, runtime duplicates, and legacy read-only names.
 
 Current validation result:
 
 ```text
-currentTestSecretCount=20
-currentInstallationConfigSecretCount=0
-nonDryRunBlockedBy=/test/InstallationConfig create/delete permission
-observedPolicyGlob=/test/InstallationConfig/*
-requiredPolicyPath=/test/InstallationConfig
-secretsMoved=0
-secretValuesPrinted=0
-```
-
-Target validation after the Infisical token is fixed:
-
-```text
+currentTestSecretCount=15
+currentInstallationConfigSecretCount=49
 expectedRuntimeCount=15
 expectedInstallationCount=49
 expectedTotalKeys=64
@@ -71,6 +61,7 @@ expectedDuplicateNames=0
 expectedMisplacedTestKeys=0
 postSyncDryRunCreatedCount=0
 postSyncDryRunDeletedCount=0
+secretValuesPrinted=0
 ```
 
 ## Notes

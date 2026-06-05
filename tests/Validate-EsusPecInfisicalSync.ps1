@@ -48,9 +48,9 @@ $requiredFragments = @(
   "expectedInstallationCount",
   "deletedCount",
   "values were not printed",
-  "Runtime values target <code>/test</code>",
-  "nonDryRunBlockedBy=/test/InstallationConfig create/delete permission",
-  "requiredPolicyPath=/test/InstallationConfig",
+  "Runtime values live under <code>/test</code>",
+  "currentTestSecretCount=15",
+  "currentInstallationConfigSecretCount=49",
   "expectedDuplicateNames=0",
   "expectedMisplacedTestKeys=0"
 )
