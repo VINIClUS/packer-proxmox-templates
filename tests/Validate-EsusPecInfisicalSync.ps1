@@ -35,6 +35,8 @@ $requiredFragments = @(
   "/test/InstallationConfig",
   "ESUS_PEC_DB_HOST",
   "ESUS_PEC_DB_PASSWORD",
+  "ESUS_PEC_DB_READONLY_USER",
+  "ESUS_PEC_DB_READONLY_PASSWORD",
   "ESUS_PEC_ADMIN_USERNAME",
   "ESUS_PEC_SMTP_ENABLED",
   "ESUS_PEC_SMTP_HOST",
@@ -46,7 +48,9 @@ $requiredFragments = @(
   "expectedInstallationCount",
   "deletedCount",
   "values were not printed",
-  'consolidated under `/test/InstallationConfig`'
+  "Runtime values target <code>/test</code>",
+  "nonDryRunBlockedBy=/test create/delete permission",
+  "expectedDuplicateNames=0"
 )
 
 foreach ($fragment in $requiredFragments) {

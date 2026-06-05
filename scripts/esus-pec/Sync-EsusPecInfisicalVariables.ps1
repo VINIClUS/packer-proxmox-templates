@@ -5,7 +5,7 @@ param(
   [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
   [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
   [string]$InfisicalEnvironment = "dev",
-  [string]$RuntimeSecretPath = "/test/InstallationConfig",
+  [string]$RuntimeSecretPath = "/test",
   [string]$InstallationSecretPath = "/test/InstallationConfig",
   [switch]$DryRun
 )
@@ -134,6 +134,36 @@ function Remove-InfisicalSecret {
   $null = Invoke-RestMethod -Method Delete -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
 }
 
+function Test-InfisicalSecretPathWritable {
+  param(
+    [Parameter(Mandatory = $true)][string]$SecretPath,
+    [Parameter(Mandatory = $true)][hashtable]$Headers
+  )
+
+  $probeName = "__ESUS_PEC_SYNC_WRITE_TEST_$([guid]::NewGuid().ToString("N"))"
+  try {
+    $null = Set-InfisicalSecret -SecretPath $SecretPath -Name $probeName -Value "probe" -Headers $Headers -Exists $false
+    Remove-InfisicalSecret -SecretPath $SecretPath -Name $probeName -Headers $Headers
+  } catch {
+    $status = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.value__ } else { "unknown" }
+    throw "Infisical path '$SecretPath' is not writable by the current token. Grant create/delete on this exact secret path before running a non-dry-run sync. HTTP status: $status"
+  }
+}
+
+function Move-InfisicalSecret {
+  param(
+    [Parameter(Mandatory = $true)][string]$SourcePath,
+    [Parameter(Mandatory = $true)][string]$TargetPath,
+    [Parameter(Mandatory = $true)][string]$Name,
+    [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Value,
+    [Parameter(Mandatory = $true)][hashtable]$Headers
+  )
+
+  # Create the target first so a denied target path cannot delete the source secret.
+  $null = Set-InfisicalSecret -SecretPath $TargetPath -Name $Name -Value $Value -Headers $Headers -Exists $false
+  Remove-InfisicalSecret -SecretPath $SourcePath -Name $Name -Headers $Headers
+}
+
 function Add-Expected {
   param(
     [Parameter(Mandatory = $true)][hashtable]$Target,
@@ -157,8 +187,9 @@ function Get-RemotePecDatabaseValues {
 
   $urlMatch = [regex]::Match($content, "Url de conex.o:\s*(?<url>\S+)", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
   $fullUserMatch = [regex]::Match($content, "Usu.rio com acesso completo.*?usu.rio:\s*(?<user>\S+).*?senha:\s*(?<password>\S+)", [System.Text.RegularExpressions.RegexOptions]::Singleline)
+  $readOnlyUserMatch = [regex]::Match($content, "Usu.rio com acesso de leitura.*?usu.rio:\s*(?<user>\S+).*?senha:\s*(?<password>\S+)", [System.Text.RegularExpressions.RegexOptions]::Singleline)
 
-  if (-not $urlMatch.Success -or -not $fullUserMatch.Success) {
+  if (-not $urlMatch.Success -or -not $fullUserMatch.Success -or -not $readOnlyUserMatch.Success) {
     throw "Could not parse PEC database credential file."
   }
 
@@ -174,6 +205,8 @@ function Get-RemotePecDatabaseValues {
     ESUS_PEC_DB_NAME = $dbMatch.Groups["name"].Value
     ESUS_PEC_DB_USER = $fullUserMatch.Groups["user"].Value
     ESUS_PEC_DB_PASSWORD = $fullUserMatch.Groups["password"].Value
+    ESUS_PEC_DB_READONLY_USER = $readOnlyUserMatch.Groups["user"].Value
+    ESUS_PEC_DB_READONLY_PASSWORD = $readOnlyUserMatch.Groups["password"].Value
   }
 }
 
@@ -191,6 +224,13 @@ $sameSecretPath = $RuntimeSecretPath -eq $InstallationSecretPath
 $existingRuntime = Get-InfisicalSecrets -SecretPath $RuntimeSecretPath -Headers $headers
 $existingInstall = if ($sameSecretPath) { $existingRuntime } else { Get-InfisicalSecrets -SecretPath $InstallationSecretPath -Headers $headers }
 
+if (-not $DryRun) {
+  Test-InfisicalSecretPathWritable -SecretPath $RuntimeSecretPath -Headers $headers
+  if (-not $sameSecretPath) {
+    Test-InfisicalSecretPathWritable -SecretPath $InstallationSecretPath -Headers $headers
+  }
+}
+
 $expectedRuntime = @{}
 foreach ($entry in (Get-RemotePecDatabaseValues -Target $sshTarget -Port $sshPort -KeyFile $sshKey -ContainerId $Ctid).GetEnumerator()) {
   Add-Expected -Target $expectedRuntime -Name $entry.Key -Value $entry.Value
@@ -198,7 +238,6 @@ foreach ($entry in (Get-RemotePecDatabaseValues -Target $sshTarget -Port $sshPor
 
 Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_ADMIN_USERNAME" -Value $existingInstall["ESUS_PEC_INSTALLER_CPF"]
 Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_ADMIN_PASSWORD" -Value $existingInstall["ESUS_PEC_INITIAL_PASSWORD"]
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_ENABLED" -Value "false"
 Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_HOST" -Value ""
 Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_PORT" -Value "587"
 Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_USERNAME" -Value ""
@@ -287,9 +326,16 @@ $deleted = New-Object System.Collections.Generic.List[string]
 foreach ($entry in $expectedRuntime.GetEnumerator()) {
   if ($DryRun) {
     if (-not $existingRuntime.ContainsKey($entry.Key)) { $created.Add("$RuntimeSecretPath/$($entry.Key)") }
+    if ($existingInstall.ContainsKey($entry.Key)) { $deleted.Add("$InstallationSecretPath/$($entry.Key)") }
   } else {
-    $action = Set-InfisicalSecret -SecretPath $RuntimeSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $existingRuntime.ContainsKey($entry.Key)
-    if ($action -eq "created") { $created.Add("$RuntimeSecretPath/$($entry.Key)") } else { $updated.Add("$RuntimeSecretPath/$($entry.Key)") }
+    if (-not $existingRuntime.ContainsKey($entry.Key) -and $existingInstall.ContainsKey($entry.Key)) {
+      Move-InfisicalSecret -SourcePath $InstallationSecretPath -TargetPath $RuntimeSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers
+      $created.Add("$RuntimeSecretPath/$($entry.Key)")
+      $deleted.Add("$InstallationSecretPath/$($entry.Key)")
+    } else {
+      $action = Set-InfisicalSecret -SecretPath $RuntimeSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $existingRuntime.ContainsKey($entry.Key)
+      if ($action -eq "created") { $created.Add("$RuntimeSecretPath/$($entry.Key)") } else { $updated.Add("$RuntimeSecretPath/$($entry.Key)") }
+    }
   }
 }
 
@@ -307,20 +353,28 @@ foreach ($entry in $expectedInstall.GetEnumerator()) {
 }
 
 foreach ($name in $runtimeExtra) {
+  $deleteKey = "$RuntimeSecretPath/$name"
+  if ($deleted.Contains($deleteKey)) {
+    continue
+  }
   if ($DryRun) {
-    $deleted.Add("$RuntimeSecretPath/$name")
+    $deleted.Add($deleteKey)
   } else {
     Remove-InfisicalSecret -SecretPath $RuntimeSecretPath -Name $name -Headers $headers
-    $deleted.Add("$RuntimeSecretPath/$name")
+    $deleted.Add($deleteKey)
   }
 }
 
 foreach ($name in $installExtra) {
+  $deleteKey = "$InstallationSecretPath/$name"
+  if ($deleted.Contains($deleteKey)) {
+    continue
+  }
   if ($DryRun) {
-    $deleted.Add("$InstallationSecretPath/$name")
+    $deleted.Add($deleteKey)
   } else {
     Remove-InfisicalSecret -SecretPath $InstallationSecretPath -Name $name -Headers $headers
-    $deleted.Add("$InstallationSecretPath/$name")
+    $deleted.Add($deleteKey)
   }
 }
 
