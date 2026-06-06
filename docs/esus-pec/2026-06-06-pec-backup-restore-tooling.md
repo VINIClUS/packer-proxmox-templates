@@ -2,9 +2,9 @@
 
 ## Scope
 
-Investigated the backup/restore tooling installed with e-SUS PEC on CT `133` and implemented a reusable restore script for the latest backup stored in MinIO.
+Investigated the backup/restore tooling installed with e-SUS PEC on CT `133`, implemented a reusable restore script for the latest backup stored in MinIO, and executed the restore after explicit approval.
 
-No destructive restore was executed during this validation. VM `101` and CT `100` were not modified.
+VM `101` and CT `100` were not modified.
 
 ## Installed PEC Tool
 
@@ -97,6 +97,37 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/esus-pec/Restore
 ```
 
 When applying, the script creates a Proxmox snapshot before modifying the database unless `-SkipSnapshot` is passed.
+
+Use `-ReuseExistingTargetBackup` when the same backup is already present under `/tmp/esus-pec-restore` on the target CT and its checksum/size should be validated without downloading from MinIO again.
+
+## Executed Restore
+
+Approved restore command:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/esus-pec/Restore-EsusPecBackupFromMinio.ps1 -ReuseExistingTargetBackup -Apply -ConfirmDestructiveRestore -SkipSnapshot
+```
+
+Result:
+
+```text
+restore=completed
+object_key=postgres/2026/05/20260519192557-esus-postgres.backup
+sha256=A388D0769B5B0907652E3DC325E5FEFD7782A4D8206B070AA8CFF31E5DF3918C
+database=esus
+tables=1101
+size=18 GB
+https_status=200_after_migration
+```
+
+The restored backup contained database version `5.4.36` while the installed PEC binary was `5.4.37`. The service initially returned `502` and logged:
+
+```text
+Versao do PEC esperada no banco de dados: 5.4.37
+Versao encontrada: 5.4.36
+```
+
+The installed `/opt/e-SUS/database/tools/migrador.jar` was then run with JDBC URL, username, and the PostgreSQL password read from `credenciais.txt`. After migration, HTTPS returned `200 OK` and the backend listened on port `8080`.
 
 ## Safety Notes
 
