@@ -104,6 +104,12 @@ Upload and move a verified backup:
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/esus-pec/Upload-EsusPecBackupToMinio.ps1 -BackupFile .\20260519192557-esus-postgres.backup -RemoveLocalAfterValidation
 ```
 
+Validate the latest backup for a future PEC restore without applying database changes:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/esus-pec/Restore-EsusPecBackupFromMinio.ps1
+```
+
 Quick health check:
 
 ```powershell
