@@ -13,6 +13,7 @@ param(
   [switch]$Apply,
   [switch]$ConfirmDestructiveRestore,
   [switch]$SkipSnapshot,
+  [switch]$ReuseExistingTargetBackup,
   [switch]$KeepDownloadedBackup
 )
 
@@ -34,10 +35,18 @@ function Get-HclValue {
 
 function Invoke-ProxmoxSsh {
   param([Parameter(Mandatory = $true)][string]$Command)
-  $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget $Command 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    $output
-    throw "Remote Proxmox command failed with exit code $LASTEXITCODE."
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget $Command 2>&1 |
+      ForEach-Object { $_.ToString() }
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($exitCode -ne 0) {
+    $tail = ($output | Select-Object -Last 120) -join "`n"
+    throw "Remote Proxmox command failed with exit code $exitCode.`n$tail"
   }
   return ($output -join "`n")
 }
@@ -121,7 +130,26 @@ $remoteHostPath = "/tmp/esus-pec-restore-$TargetCtid-$fileName"
 $remoteTargetDir = "/tmp/esus-pec-restore"
 $remoteTargetPath = "$remoteTargetDir/$fileName"
 
-$downloadScript = @"
+$downloadHash = ""
+$downloadSize = ""
+$reusedExistingTargetBackup = $false
+
+if ($ReuseExistingTargetBackup) {
+  $existingBackupScript = @"
+set -euo pipefail
+BACKUP="$remoteTargetPath"
+test -f "`$BACKUP"
+sha256sum "`$BACKUP"
+stat -c '%s' "`$BACKUP"
+"@
+  $existingOutput = Invoke-ContainerBash -Ctid $TargetCtid -Script $existingBackupScript
+  $downloadHash = (($existingOutput -split "`n" | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s" } | Select-Object -First 1) -split "\s+")[0].ToUpperInvariant()
+  $downloadSize = ($existingOutput -split "`n" | Where-Object { $_ -match "^\d+$" } | Select-Object -First 1).Trim()
+  $reusedExistingTargetBackup = $true
+}
+
+if (-not $reusedExistingTargetBackup) {
+  $downloadScript = @"
 set -euo pipefail
 export MC_CONFIG_DIR=/root/.mc-esus-restore-download
 rm -rf "`$MC_CONFIG_DIR"
@@ -130,9 +158,10 @@ rm -rf "`$MC_CONFIG_DIR"
 sha256sum "$remoteObjectStoragePath"
 stat -c '%s' "$remoteObjectStoragePath"
 "@
-$downloadOutput = Invoke-ContainerBash -Ctid $ObjectStorageCtid -Script $downloadScript
-$downloadHash = (($downloadOutput -split "`n" | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s" } | Select-Object -First 1) -split "\s+")[0].ToUpperInvariant()
-$downloadSize = ($downloadOutput -split "`n" | Where-Object { $_ -match "^\d+$" } | Select-Object -First 1).Trim()
+  $downloadOutput = Invoke-ContainerBash -Ctid $ObjectStorageCtid -Script $downloadScript
+  $downloadHash = (($downloadOutput -split "`n" | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s" } | Select-Object -First 1) -split "\s+")[0].ToUpperInvariant()
+  $downloadSize = ($downloadOutput -split "`n" | Where-Object { $_ -match "^\d+$" } | Select-Object -First 1).Trim()
+}
 
 if ($ExpectedSha256 -and ($downloadHash -ne $ExpectedSha256.ToUpperInvariant())) {
   throw "Downloaded object checksum mismatch."
@@ -141,13 +170,37 @@ if ($ExpectedSizeBytes -and ([int64]$downloadSize -ne [int64]$ExpectedSizeBytes)
   throw "Downloaded object size mismatch."
 }
 
-Invoke-ProxmoxSsh -Command "pct pull $ObjectStorageCtid '$remoteObjectStoragePath' '$remoteHostPath' >/dev/null"
-Invoke-ProxmoxSsh -Command "pct exec $TargetCtid -- mkdir -p '$remoteTargetDir' && pct push $TargetCtid '$remoteHostPath' '$remoteTargetPath' --perms 0600 >/dev/null && rm -f '$remoteHostPath'"
+if (-not $reusedExistingTargetBackup) {
+  Invoke-ProxmoxSsh -Command "pct pull $ObjectStorageCtid '$remoteObjectStoragePath' '$remoteHostPath' >/dev/null"
+  Invoke-ProxmoxSsh -Command "pct exec $TargetCtid -- mkdir -p '$remoteTargetDir' && pct push $TargetCtid '$remoteHostPath' '$remoteTargetPath' --perms 0600 >/dev/null && rm -f '$remoteHostPath'"
+}
 
 $validateScript = @"
 set -euo pipefail
 PG_BIN=/opt/e-SUS/database/current/bin
 BACKUP="$remoteTargetPath"
+read_pg_password() {
+  export PGPASSWORD="`$(python3 - <<'PY'
+import re
+from pathlib import Path
+
+path = Path("/opt/e-SUS/webserver/config/credenciais.txt")
+text = path.read_text(encoding="utf-8", errors="ignore")
+patterns = [
+    r"Usu.rio com acesso completo.*?senha:\s*([^\s]+)",
+    r"acesso completo.*?senha:\s*([^\s]+)",
+]
+for pattern in patterns:
+    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    if match:
+        print(match.group(1))
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+)"
+  test -n "`$PGPASSWORD"
+}
+read_pg_password
 test -x "`$PG_BIN/pg_restore"
 test -x "`$PG_BIN/psql"
 test -x "`$PG_BIN/createdb"
@@ -156,6 +209,7 @@ sha256sum "`$BACKUP"
 stat -c '%s' "`$BACKUP"
 "`$PG_BIN/pg_restore" --list "`$BACKUP" | sed -n '1,20p'
 "`$PG_BIN/pg_isready" -h localhost -p 5433 -U postgres
+"`$PG_BIN/psql" -w -p 5433 -U postgres -d esus -Atc "select 1" >/dev/null
 systemctl is-active e-SUS-PEC.service
 "@
 $validationOutput = Invoke-ContainerBash -Ctid $TargetCtid -Script $validateScript
@@ -174,6 +228,7 @@ if (-not $Apply) {
     downloadedSizeBytes = $downloadSize
     validation = "pg_restore_list_ok"
     destructiveRestoreRequiredFlags = "-Apply -ConfirmDestructiveRestore"
+    reusedExistingTargetBackup = $reusedExistingTargetBackup
     downloadedBackupKept = $KeepDownloadedBackup.IsPresent
   } | ConvertTo-Json -Depth 4
   exit 0
@@ -189,16 +244,46 @@ set -euo pipefail
 PG_BIN=/opt/e-SUS/database/current/bin
 BACKUP="$remoteTargetPath"
 SERVICE=e-SUS-PEC.service
+LOG_DIR=/tmp/esus-pec-restore
+LOG_FILE="`$LOG_DIR/restore-`$(date +%Y%m%d%H%M%S).log"
 export PGCLIENTENCODING=UTF8
+mkdir -p "`$LOG_DIR"
+touch "`$LOG_FILE"
+chmod 0600 "`$LOG_FILE"
+exec > >(tee -a "`$LOG_FILE") 2>&1
+trap 'rc=`$?; echo "restore_failed rc=`$rc log=`$LOG_FILE"; tail -120 "`$LOG_FILE" >&2 || true; systemctl start "`$SERVICE" || true; exit `$rc' ERR
+read_pg_password() {
+  export PGPASSWORD="`$(python3 - <<'PY'
+import re
+from pathlib import Path
+
+path = Path("/opt/e-SUS/webserver/config/credenciais.txt")
+text = path.read_text(encoding="utf-8", errors="ignore")
+patterns = [
+    r"Usu.rio com acesso completo.*?senha:\s*([^\s]+)",
+    r"acesso completo.*?senha:\s*([^\s]+)",
+]
+for pattern in patterns:
+    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    if match:
+        print(match.group(1))
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+)"
+  test -n "`$PGPASSWORD"
+}
+read_pg_password
 systemctl stop "`$SERVICE"
 "`$PG_BIN/pg_isready" -h localhost -p 5433 -U postgres
-"`$PG_BIN/psql" -p 5433 -U postgres -d esus -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = 'esus';"
-"`$PG_BIN/dropdb" -p 5433 -U postgres --if-exists esus_new
-"`$PG_BIN/createdb" -E UTF8 -T template0 -p 5433 -U postgres esus_new
-"`$PG_BIN/pg_restore" -p 5433 -U postgres -1 -Fc -d esus_new -O "`$BACKUP"
-"`$PG_BIN/psql" -p 5433 -U postgres -d esus -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = 'esus';"
-"`$PG_BIN/dropdb" -p 5433 -U postgres esus
-"`$PG_BIN/psql" -p 5433 -U postgres -c "ALTER DATABASE esus_new RENAME TO esus;"
+"`$PG_BIN/psql" -w -p 5433 -U postgres -d esus -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = 'esus';"
+"`$PG_BIN/psql" -w -p 5433 -U postgres -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = 'esus_new';"
+"`$PG_BIN/psql" -w -p 5433 -U postgres -d postgres -q -c "drop database if exists esus_new"
+"`$PG_BIN/createdb" -w -E UTF8 -T template0 -p 5433 -U postgres esus_new
+"`$PG_BIN/pg_restore" -w -p 5433 -U postgres -1 -Fc -d esus_new -O "`$BACKUP"
+"`$PG_BIN/psql" -w -p 5433 -U postgres -d esus -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname = 'esus';"
+"`$PG_BIN/dropdb" -w -p 5433 -U postgres esus
+"`$PG_BIN/psql" -w -p 5433 -U postgres -c "ALTER DATABASE esus_new RENAME TO esus;"
 systemctl start "`$SERVICE"
 systemctl is-active "`$SERVICE"
 "@
@@ -219,5 +304,6 @@ if (-not $KeepDownloadedBackup) {
   snapshot = if ($SkipSnapshot) { "" } else { $snapshotName }
   restore = "completed"
   service = "e-SUS-PEC.service"
+  reusedExistingTargetBackup = $reusedExistingTargetBackup
   downloadedBackupKept = $KeepDownloadedBackup.IsPresent
 } | ConvertTo-Json -Depth 4
