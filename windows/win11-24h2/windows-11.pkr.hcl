@@ -128,6 +128,7 @@ build {
     scripts = [
       abspath("${path.root}/scripts/Install-VirtIO.ps1"),
       abspath("${path.root}/scripts/Configure-EnterpriseRemoting.ps1"),
+      abspath("${path.root}/scripts/Install-CloudbaseInit.ps1"),
       abspath("${path.root}/scripts/Optimize-Template.ps1")
     ]
   }

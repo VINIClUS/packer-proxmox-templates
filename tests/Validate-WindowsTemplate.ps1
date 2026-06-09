@@ -10,6 +10,7 @@ $requiredFiles = @(
     "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
     "windows/win11-24h2/http/scripts/Install-QemuGuestAgent.ps1",
     "windows/win11-24h2/scripts/Install-VirtIO.ps1",
+    "windows/win11-24h2/scripts/Install-CloudbaseInit.ps1",
     "windows/win11-24h2/scripts/Configure-EnterpriseRemoting.ps1",
     "windows/win11-24h2/scripts/Optimize-Template.ps1",
     "windows/win11-24h2/scripts/Sysprep-Template.ps1",
@@ -40,6 +41,12 @@ if ($varsExample -notmatch 'windows_product_key') {
 }
 
 $packerFile = Get-Content -LiteralPath (Join-Path $templateRoot "windows-11.pkr.hcl") -Raw
+$variablesFile = Get-Content -LiteralPath (Join-Path $templateRoot "variables.pkr.hcl") -Raw
+foreach ($variableName in @("proxmox_ssh_host", "proxmox_ssh_port", "proxmox_ssh_user", "proxmox_ssh_private_key_file")) {
+    if ($variablesFile -notmatch "variable\s+`"$variableName`"") {
+        throw "variables.pkr.hcl must declare shared config variable $variableName to keep packer validate warning-free"
+    }
+}
 if ($packerFile -notmatch 'source\s+"proxmox-iso"\s+"windows_11"') {
     throw "Packer file must define source proxmox-iso windows_11"
 }
@@ -69,6 +76,9 @@ if ($packerFile -notmatch 'serials\s*=\s*\[\s*"socket"\s*\]') {
 }
 if ($packerFile -notmatch 'Configure-EnterpriseRemoting\.ps1') {
     throw "Packer file must run enterprise remote management provisioning before template optimization"
+}
+if ($packerFile -notmatch 'Install-CloudbaseInit\.ps1') {
+    throw "Packer file must install Cloudbase-Init before sealing the Windows template"
 }
 if ($packerFile -notmatch 'elevated_user\s*=\s*var\.winrm_username' -or $packerFile -notmatch 'elevated_password\s*=\s*var\.winrm_password') {
     throw "PowerShell provisioners must run elevated so Windows capabilities can be installed over WinRM"
@@ -123,6 +133,7 @@ $powershellFiles = @(
     "windows/win11-24h2/http/scripts/Configure-WinRM.ps1",
     "windows/win11-24h2/http/scripts/Install-QemuGuestAgent.ps1",
     "windows/win11-24h2/scripts/Install-VirtIO.ps1",
+    "windows/win11-24h2/scripts/Install-CloudbaseInit.ps1",
     "windows/win11-24h2/scripts/Configure-EnterpriseRemoting.ps1",
     "windows/win11-24h2/scripts/Optimize-Template.ps1",
     "windows/win11-24h2/scripts/Sysprep-Template.ps1"
@@ -181,6 +192,16 @@ if ($optimizeScript -match 'wevtutil\s+el\s*\|\s*ForEach-Object\s*\{\s*wevtutil\
     throw "Optimize-Template.ps1 must not fail the build on a single protected event log"
 }
 
+$sysprepScript = Get-Content -LiteralPath (Join-Path $templateRoot "scripts/Sysprep-Template.ps1") -Raw
+foreach ($needle in @(
+    "Cloudbase Solutions\Cloudbase-Init\conf\Unattend.xml",
+    '/unattend:`"$cloudbaseUnattend`"'
+)) {
+    if ($sysprepScript -notmatch [regex]::Escape($needle)) {
+        throw "Sysprep-Template.ps1 must use Cloudbase-Init Unattend.xml when available: $needle"
+    }
+}
+
 $enterpriseRemotingScript = Get-Content -LiteralPath (Join-Path $templateRoot "scripts/Configure-EnterpriseRemoting.ps1") -Raw
 foreach ($needle in @(
     "bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200",
@@ -205,8 +226,27 @@ if ($enterpriseRemotingScript -match 'Set-NetFirewallPortFilter') {
     throw "Configure-EnterpriseRemoting.ps1 must recreate the SSH firewall rule instead of using version-specific port-filter mutation"
 }
 
+$cloudbaseScript = Get-Content -LiteralPath (Join-Path $templateRoot "scripts/Install-CloudbaseInit.ps1") -Raw
+foreach ($needle in @(
+    "CloudbaseInitSetup_Stable_x64.msi",
+    "RUN_SERVICE_AS_LOCAL_SYSTEM=1",
+    "cloudbase-init.conf",
+    "cloudbase-init-unattend.conf",
+    "metadata_services=cloudbaseinit.metadata.services.configdrive.ConfigDriveService",
+    "plugins=cloudbaseinit.plugins.common.mtu.MTUPlugin,cloudbaseinit.plugins.windows.ntpclient.NTPClientPlugin,cloudbaseinit.plugins.common.sethostname.SetHostNamePlugin,cloudbaseinit.plugins.windows.createuser.CreateUserPlugin,cloudbaseinit.plugins.common.networkconfig.NetworkConfigPlugin,cloudbaseinit.plugins.common.sshpublickeys.SetUserSSHPublicKeysPlugin,cloudbaseinit.plugins.windows.extendvolumes.ExtendVolumesPlugin,cloudbaseinit.plugins.common.userdata.UserDataPlugin,cloudbaseinit.plugins.common.setuserpassword.SetUserPasswordPlugin,cloudbaseinit.plugins.common.localscripts.LocalScriptsPlugin",
+    "first_logon_behaviour=no",
+    "config_drive_cdrom=true",
+    "log-dir=C:\Program Files\Cloudbase Solutions\Cloudbase-Init\log\",
+    "log-file=cloudbase-init.log",
+    "Set-Service -Name cloudbase-init -StartupType Automatic"
+)) {
+    if ($cloudbaseScript -notmatch [regex]::Escape($needle)) {
+        throw "Install-CloudbaseInit.ps1 must configure Windows Cloud-Init support: $needle"
+    }
+}
+
 $credentialDoc = Get-Content -LiteralPath (Join-Path $root "docs/credentials/windows-template-credentials.html") -Raw
-foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "QEMU Guest Agent", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "OpenSSH Server", "EMS", "serial0", "TCP 22", "192.168.1.149:8006")) {
+foreach ($needle in @("Proxmox API token", "WinRM Administrator password", "Windows setup product key", "QEMU Guest Agent", "VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted", "OpenSSH Server", "Cloudbase-Init", "ConfigDrive", "EMS", "serial0", "TCP 22", "192.168.1.149:8006")) {
     if ($credentialDoc -notmatch [regex]::Escape($needle)) {
         throw "Credential documentation must mention $needle"
     }

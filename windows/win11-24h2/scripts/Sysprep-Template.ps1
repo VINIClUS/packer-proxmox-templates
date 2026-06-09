@@ -11,4 +11,10 @@ Remove-Item -Path "C:\Windows\SoftwareDistribution\Download\*" -Recurse -Force -
 Stop-Service -Name WinRM -Force -ErrorAction SilentlyContinue
 
 $sysprep = "$env:WINDIR\System32\Sysprep\Sysprep.exe"
-Start-Process -FilePath $sysprep -ArgumentList "/generalize", "/oobe", "/shutdown", "/quiet" -Wait
+$arguments = @("/generalize", "/oobe", "/shutdown", "/quiet")
+$cloudbaseUnattend = Join-Path $env:ProgramFiles "Cloudbase Solutions\Cloudbase-Init\conf\Unattend.xml"
+if (Test-Path -LiteralPath $cloudbaseUnattend) {
+  $arguments += "/unattend:`"$cloudbaseUnattend`""
+}
+
+Start-Process -FilePath $sysprep -ArgumentList $arguments -Wait

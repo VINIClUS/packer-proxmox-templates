@@ -11,9 +11,28 @@ The template builds a Windows 11 24H2 Proxmox template from a local Proxmox ISO 
 - `windows/win11-24h2/windows-11.pkr.hcl` for the Proxmox ISO builder.
 - `windows/win11-24h2/http/Autounattend.xml.pkrtpl` for unattended setup.
 - `windows/win11-24h2/http/scripts/Configure-WinRM.ps1` for WinRM bootstrap.
-- `windows/win11-24h2/scripts/*.ps1` for VirtIO tools, cleanup, and Sysprep.
+- `windows/win11-24h2/scripts/*.ps1` for VirtIO tools, Cloudbase-Init, cleanup, and Sysprep.
 - `config/Proxmox.pkrvars.hcl` for real local secrets.
 - `config/Proxmox.pkrvars.hcl.example` for tracked example values.
+
+## Cloudbase-Init
+
+Windows clones created from this template depend on Cloudbase-Init to consume
+the Proxmox Cloud-Init drive. The Packer build installs
+`CloudbaseInitSetup_Stable_x64.msi`, configures the service to run as
+LocalSystem, restricts metadata discovery to ConfigDrive, and enables the
+plugins for hostname, user creation, network config, SSH public keys, volume
+extension, user data, password injection, and local scripts.
+
+The Sysprep step uses
+`C:\Program Files\Cloudbase Solutions\Cloudbase-Init\conf\Unattend.xml` when it
+exists so the generalized image boots with Cloudbase-Init integration intact.
+
+On 2026-06-09, VMID `7001` on Proxmox `192.168.1.149` had `ciuser=cpd`, a
+cloud-init drive on `ide2`, and guest networking on `192.168.1.98`, but QEMU
+Guest Agent inspection showed no `cloudbase-init` service and `net user cpd`
+returned that the user did not exist. That means the Proxmox Cloud-Init values
+were generated on the host but no Windows guest agent was present to apply them.
 
 ## Testing
 

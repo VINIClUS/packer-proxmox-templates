@@ -44,6 +44,31 @@ variable "proxmox_network_bridge" {
   default     = "vmbr0"
 }
 
+variable "proxmox_ssh_host" {
+  type        = string
+  description = "Shared Proxmox SSH host value accepted by this target to keep global var files reusable."
+  default     = null
+}
+
+variable "proxmox_ssh_port" {
+  type        = number
+  description = "Shared Proxmox SSH port value accepted by this target to keep global var files reusable."
+  default     = null
+}
+
+variable "proxmox_ssh_user" {
+  type        = string
+  description = "Shared Proxmox SSH user value accepted by this target to keep global var files reusable."
+  default     = null
+}
+
+variable "proxmox_ssh_private_key_file" {
+  type        = string
+  description = "Shared Proxmox SSH key path accepted by this target to keep global var files reusable."
+  default     = null
+  sensitive   = true
+}
+
 variable "proxmox_vlan_tag" {
   type        = number
   description = "Reserved for future tagged network support. Untagged Proxmox NICs must omit vlan_tag instead of using 0."
