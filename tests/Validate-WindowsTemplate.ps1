@@ -234,6 +234,7 @@ foreach ($needle in @(
     "cloudbase-init-unattend.conf",
     "metadata_services=cloudbaseinit.metadata.services.configdrive.ConfigDriveService",
     "plugins=cloudbaseinit.plugins.common.mtu.MTUPlugin,cloudbaseinit.plugins.windows.ntpclient.NTPClientPlugin,cloudbaseinit.plugins.common.sethostname.SetHostNamePlugin,cloudbaseinit.plugins.windows.createuser.CreateUserPlugin,cloudbaseinit.plugins.common.networkconfig.NetworkConfigPlugin,cloudbaseinit.plugins.common.sshpublickeys.SetUserSSHPublicKeysPlugin,cloudbaseinit.plugins.windows.extendvolumes.ExtendVolumesPlugin,cloudbaseinit.plugins.common.userdata.UserDataPlugin,cloudbaseinit.plugins.common.setuserpassword.SetUserPasswordPlugin,cloudbaseinit.plugins.common.localscripts.LocalScriptsPlugin",
+    "allow_reboot=false",
     "first_logon_behaviour=no",
     "config_drive_cdrom=true",
     "log-dir=C:\Program Files\Cloudbase Solutions\Cloudbase-Init\log\",
@@ -242,6 +243,18 @@ foreach ($needle in @(
 )) {
     if ($cloudbaseScript -notmatch [regex]::Escape($needle)) {
         throw "Install-CloudbaseInit.ps1 must configure Windows Cloud-Init support: $needle"
+    }
+}
+foreach ($needle in @(
+    "Apply-ProxmoxCloudInit.ps1",
+    "openstack\latest\user_data",
+    "ssh_authorized_keys",
+    "administrators_authorized_keys",
+    "New-LocalUser",
+    "Add-LocalGroupMember -Group `"Administrators`""
+)) {
+    if ($cloudbaseScript -notmatch [regex]::Escape($needle)) {
+        throw "Install-CloudbaseInit.ps1 must install a Proxmox ciuser compatibility LocalScript: $needle"
     }
 }
 

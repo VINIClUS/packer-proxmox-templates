@@ -24,6 +24,13 @@ LocalSystem, restricts metadata discovery to ConfigDrive, and enables the
 plugins for hostname, user creation, network config, SSH public keys, volume
 extension, user data, password injection, and local scripts.
 
+Proxmox emits the requested `ciuser` in `openstack\latest\user_data`. Cloudbase
+creates its own default `Admin` account from metadata, so this template also
+installs `Apply-ProxmoxCloudInit.ps1` as a Cloudbase LocalScript. The script
+reads the ConfigDrive `user_data`, creates the Proxmox `ciuser`, adds it to
+`Administrators`, and writes SSH public keys to both the user profile and
+`C:\ProgramData\ssh\administrators_authorized_keys`.
+
 The Sysprep step uses
 `C:\Program Files\Cloudbase Solutions\Cloudbase-Init\conf\Unattend.xml` when it
 exists so the generalized image boots with Cloudbase-Init integration intact.
@@ -33,6 +40,10 @@ cloud-init drive on `ide2`, and guest networking on `192.168.1.98`, but QEMU
 Guest Agent inspection showed no `cloudbase-init` service and `net user cpd`
 returned that the user did not exist. That means the Proxmox Cloud-Init values
 were generated on the host but no Windows guest agent was present to apply them.
+
+On 2026-06-10, template `9101` was rebuilt with Cloudbase-Init and the
+Proxmox `ciuser` LocalScript. A validation clone `7001` with `ciuser=cpd` and an
+SSH public key authenticated successfully over SSH as `win11-cloudbase\cpd`.
 
 ## Testing
 
