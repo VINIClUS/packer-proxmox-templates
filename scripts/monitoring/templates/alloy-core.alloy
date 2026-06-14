@@ -44,9 +44,9 @@ loki.source.journal "core" {
   forward_to = [loki.write.local.receiver]
 
   labels = {
-    job  = "monitoring-core-journal"
-    host = "monitoring-core"
-    ctid = "190"
+    job  = "monitoring-core-journal",
+    host = "monitoring-core",
+    ctid = "190",
   }
 }
 

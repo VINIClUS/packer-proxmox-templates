@@ -129,6 +129,21 @@ foreach ($requiredReadinessTerm in @("wait_http_ready()", "for attempt in", "sle
   }
 }
 
+$alloyCoreTemplate = $artifactByPath["scripts/monitoring/templates/alloy-core.alloy"].Content
+$alloyTargetTemplate = $artifactByPath["scripts/monitoring/templates/alloy-linux-target.alloy"].Content
+foreach ($requiredAlloySyntaxTerm in @(
+  'job  = "monitoring-core-journal",',
+  'host = "monitoring-core",',
+  'job  = "linux-target-journal",',
+  'host = "ESUS_PEC_TARGET_NAME",',
+  '__path__ = "/var/log/nginx/*.log",',
+  '__path__ = "/opt/e-SUS/**/*.log",'
+)) {
+  if (($alloyCoreTemplate + "`n" + $alloyTargetTemplate) -notmatch [regex]::Escape($requiredAlloySyntaxTerm)) {
+    throw "Alloy River object fields must use comma separators: $requiredAlloySyntaxTerm"
+  }
+}
+
 $nonDocumentationArtifacts = $artifacts | Where-Object { $_.Path -notmatch '^docs/' }
 foreach ($artifact in $nonDocumentationArtifacts) {
   if ($artifact.Content -match '(?im)\bpromtail\b') {

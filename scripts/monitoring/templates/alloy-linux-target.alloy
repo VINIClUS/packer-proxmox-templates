@@ -8,28 +8,28 @@ loki.source.journal "system" {
   forward_to = [loki.write.monitoring_core.receiver]
 
   labels = {
-    job  = "linux-target-journal"
-    host = "ESUS_PEC_TARGET_NAME"
-    ctid = "133"
-    app  = "esus-pec"
+    job  = "linux-target-journal",
+    host = "ESUS_PEC_TARGET_NAME",
+    ctid = "133",
+    app  = "esus-pec",
   }
 }
 
 loki.source.file "application_logs" {
   targets = [
     {
-      __path__ = "/var/log/nginx/*.log"
-      job      = "nginx"
-      host     = "ESUS_PEC_TARGET_NAME"
-      ctid     = "133"
-      app      = "esus-pec"
+      __path__ = "/var/log/nginx/*.log",
+      job      = "nginx",
+      host     = "ESUS_PEC_TARGET_NAME",
+      ctid     = "133",
+      app      = "esus-pec",
     },
     {
-      __path__ = "/opt/e-SUS/**/*.log"
-      job      = "esus-pec"
-      host     = "ESUS_PEC_TARGET_NAME"
-      ctid     = "133"
-      app      = "esus-pec"
+      __path__ = "/opt/e-SUS/**/*.log",
+      job      = "esus-pec",
+      host     = "ESUS_PEC_TARGET_NAME",
+      ctid     = "133",
+      app      = "esus-pec",
     },
   ]
 
