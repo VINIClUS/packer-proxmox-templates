@@ -1,0 +1,33 @@
+# Prometheus baseline configuration for the centralized monitoring core.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: monitoring-core
+    static_configs:
+      - targets:
+          - localhost:9090
+        labels:
+          host: monitoring-core
+          ctid: "190"
+
+  - job_name: monitoring-core-alloy
+    static_configs:
+      - targets:
+          - localhost:12345
+        labels:
+          host: monitoring-core
+          ctid: "190"
+
+  - job_name: esus-pec-lxc-5437
+    static_configs:
+      - targets:
+          - ESUS_PEC_LXC_TARGET_METRICS_HOST:9100
+          - ESUS_PEC_LXC_TARGET_METRICS_HOST:9113
+          - ESUS_PEC_LXC_TARGET_METRICS_HOST:9187
+          - ESUS_PEC_LXC_TARGET_METRICS_HOST:9404
+        labels:
+          host: esus-pec-lxc-5437
+          ctid: "133"
+          app: esus-pec
