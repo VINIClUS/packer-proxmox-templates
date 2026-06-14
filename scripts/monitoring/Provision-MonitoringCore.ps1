@@ -14,11 +14,12 @@ param(
   [int]$InitialTargetCtid = 133,
   [string]$InitialTargetName = "esus-pec-lxc-5437",
   [string]$InitialTargetMetricsHost = "192.168.1.209",
-  [string]$PrometheusVersion = "3.12.0",
-  [string]$LokiVersion = "3.7.2",
   [switch]$SkipCreate,
   [switch]$SkipHealthChecks
 )
+
+$script:PrometheusVersion = "3.12.0"
+$script:LokiVersion = "3.7.2"
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -231,9 +232,9 @@ install -d -o prometheus -g prometheus -m 0755 /etc/prometheus /var/lib/promethe
 install -d -o root -g root -m 0755 /usr/local/share/prometheus
 
 prom_tmp="`$(mktemp -d)"
-curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$PrometheusVersion/prometheus-$PrometheusVersion.linux-amd64.tar.gz" -o "`$prom_tmp/prometheus.tar.gz"
+curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/prometheus-$($script:PrometheusVersion).linux-amd64.tar.gz" -o "`$prom_tmp/prometheus.tar.gz"
 tar -xzf "`$prom_tmp/prometheus.tar.gz" -C "`$prom_tmp"
-prom_dir="`$prom_tmp/prometheus-$PrometheusVersion.linux-amd64"
+prom_dir="`$prom_tmp/prometheus-$($script:PrometheusVersion).linux-amd64"
 install -m 0755 "`$prom_dir/prometheus" /usr/local/bin/prometheus
 install -m 0755 "`$prom_dir/promtool" /usr/local/bin/promtool
 rm -rf /usr/local/share/prometheus/consoles /usr/local/share/prometheus/console_libraries
@@ -272,7 +273,7 @@ id loki >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/lok
 install -d -o loki -g loki -m 0755 /etc/loki /var/lib/loki /var/lib/loki/chunks /var/lib/loki/rules /var/lib/loki/compactor
 
 loki_tmp="`$(mktemp -d)"
-curl -fsSL "https://github.com/grafana/loki/releases/download/v$LokiVersion/loki-linux-amd64.zip" -o "`$loki_tmp/loki.zip"
+curl -fsSL "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/loki-linux-amd64.zip" -o "`$loki_tmp/loki.zip"
 unzip -q -o "`$loki_tmp/loki.zip" -d "`$loki_tmp"
 loki_bin="`$(find "`$loki_tmp" -maxdepth 1 -type f -name 'loki*' | head -1)"
 install -m 0755 "`$loki_bin" /usr/local/bin/loki
@@ -326,13 +327,21 @@ systemctl enable prometheus grafana-server loki alloy >/dev/null
 systemctl restart prometheus grafana-server loki alloy
 '@ | Out-Null
 
-$serviceStates = Get-ContainerServiceStates
-$readiness = Test-ContainerReadiness
+if ($SkipHealthChecks) {
+  $healthChecks = "skipped"
+  $serviceStates = "skipped"
+  $readiness = "skipped"
+} else {
+  $healthChecks = "completed"
+  $serviceStates = Get-ContainerServiceStates
+  $readiness = Test-ContainerReadiness
+}
 
 [ordered]@{
   ctid = $Ctid
   hostname = $Hostname
   ip = $ipAddress
+  healthChecks = $healthChecks
   services = $serviceStates
   readiness = $readiness
   endpoints = [ordered]@{
