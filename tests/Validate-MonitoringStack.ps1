@@ -111,6 +111,12 @@ foreach ($obsoletePrometheusConsoleReference in @("--web.console.templates", "--
   }
 }
 
+foreach ($requiredDownloadHardeningTerm in @("download_url()", "--retry", "--retry-all-errors", "--connect-timeout")) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredDownloadHardeningTerm)) {
+    throw "Monitoring core provisioner downloads must include transient network hardening: $requiredDownloadHardeningTerm"
+  }
+}
+
 $nonDocumentationArtifacts = $artifacts | Where-Object { $_.Path -notmatch '^docs/' }
 foreach ($artifact in $nonDocumentationArtifacts) {
   if ($artifact.Content -match '(?im)\bpromtail\b') {

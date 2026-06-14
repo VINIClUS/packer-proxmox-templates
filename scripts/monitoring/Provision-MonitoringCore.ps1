@@ -244,8 +244,14 @@ export LC_ALL=C.UTF-8
 apt-get update -qq
 apt-get install -y -qq curl wget gpg ca-certificates apt-transport-https tar systemd unzip >/dev/null
 
+download_url() {
+  local url="`$1"
+  local output_path="`$2"
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 300 "`$url" -o "`$output_path"
+}
+
 install -d -m 0755 /etc/apt/keyrings
-wget -q -O /etc/apt/keyrings/grafana.asc https://apt.grafana.com/gpg-full.key
+download_url https://apt.grafana.com/gpg-full.key /etc/apt/keyrings/grafana.asc
 chmod 0644 /etc/apt/keyrings/grafana.asc
 cat >/etc/apt/sources.list.d/grafana.list <<'APT'
 deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main
@@ -305,8 +311,8 @@ install -d -o prometheus -g prometheus -m 0755 /etc/prometheus /var/lib/promethe
 
 prom_tmp="`$(mktemp -d)"
 prom_asset="prometheus-$($script:PrometheusVersion).linux-`$release_arch.tar.gz"
-curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/`$prom_asset" -o "`$prom_tmp/`$prom_asset"
-curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/sha256sums.txt" -o "`$prom_tmp/sha256sums.txt"
+download_url "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/`$prom_asset" "`$prom_tmp/`$prom_asset"
+download_url "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/sha256sums.txt" "`$prom_tmp/sha256sums.txt"
 verify_release_asset "`$prom_tmp/sha256sums.txt" "`$prom_asset" "`$prom_tmp/`$prom_asset"
 tar -xzf "`$prom_tmp/`$prom_asset" -C "`$prom_tmp"
 prom_dir="`$prom_tmp/prometheus-$($script:PrometheusVersion).linux-`$release_arch"
@@ -342,8 +348,8 @@ install -d -o loki -g loki -m 0755 /etc/loki /var/lib/loki /var/lib/loki/chunks 
 
 loki_tmp="`$(mktemp -d)"
 loki_asset="loki-linux-`$release_arch.zip"
-curl -fsSL "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/`$loki_asset" -o "`$loki_tmp/`$loki_asset"
-curl -fsSL "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/SHA256SUMS" -o "`$loki_tmp/SHA256SUMS"
+download_url "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/`$loki_asset" "`$loki_tmp/`$loki_asset"
+download_url "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/SHA256SUMS" "`$loki_tmp/SHA256SUMS"
 verify_release_asset "`$loki_tmp/SHA256SUMS" "`$loki_asset" "`$loki_tmp/`$loki_asset"
 unzip -q -o "`$loki_tmp/`$loki_asset" -d "`$loki_tmp"
 loki_bin="`$loki_tmp/loki-linux-`$release_arch"
