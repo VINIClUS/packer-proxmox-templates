@@ -123,6 +123,12 @@ foreach ($requiredSshWrapperTerm in @('$nativeErrorActionPreference', '$ErrorAct
   }
 }
 
+foreach ($requiredReadinessTerm in @("wait_http_ready()", "for attempt in", "sleep 2")) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredReadinessTerm)) {
+    throw "Monitoring core readiness checks must wait for services instead of using a single curl attempt: $requiredReadinessTerm"
+  }
+}
+
 $nonDocumentationArtifacts = $artifacts | Where-Object { $_.Path -notmatch '^docs/' }
 foreach ($artifact in $nonDocumentationArtifacts) {
   if ($artifact.Content -match '(?im)\bpromtail\b') {

@@ -188,13 +188,39 @@ function Test-ContainerReadiness {
 
   $healthOutput = Invoke-ContainerBash -Script @'
 set -euo pipefail
-systemctl is-active prometheus grafana-server loki alloy >/dev/null
-curl -fsS http://127.0.0.1:9090/-/ready >/dev/null
-printf 'prometheus=ready\n'
-curl -fsS http://127.0.0.1:3000/api/health >/dev/null
-printf 'grafana=ready\n'
-curl -fsS http://127.0.0.1:3100/ready >/dev/null
-printf 'loki=ready\n'
+
+wait_service_active() {
+  local service="$1"
+  for attempt in $(seq 1 30); do
+    if systemctl is-active "$service" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  systemctl is-active "$service"
+}
+
+wait_http_ready() {
+  local name="$1"
+  local url="$2"
+  for attempt in $(seq 1 30); do
+    if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
+      printf '%s=ready\n' "$name"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "$name readiness endpoint did not become ready: $url" >&2
+  return 1
+}
+
+for service in prometheus grafana-server loki alloy; do
+  wait_service_active "$service" >/dev/null
+done
+
+wait_http_ready prometheus http://127.0.0.1:9090/-/ready
+wait_http_ready grafana http://127.0.0.1:3000/api/health
+wait_http_ready loki http://127.0.0.1:3100/ready
 '@
 
   $readiness = [ordered]@{}
