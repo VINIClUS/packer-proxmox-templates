@@ -159,13 +159,56 @@ rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'test -f /root/monitoring
 
 ## Validation Evidence
 
-Static validation status for Task 5:
+Static validation status:
 
 - `tests/Validate-MonitoringStack.ps1`: passed on 2026-06-14 with
   `Monitoring stack static validation passed.`
-- Git whitespace validation: passed on 2026-06-14 for this runbook and
-  `tests/Validate-MonitoringStack.ps1`.
+- Git whitespace validation: passed on 2026-06-14 for monitoring scripts,
+  templates, tests, and this runbook.
 
-Live evidence is intentionally not recorded here yet. Task 6 should append the
-CT `190` service health, HTTP readiness, Prometheus target state, and Loki
-ingestion evidence after the live environment is provisioned.
+Live CT `190` evidence collected on 2026-06-14:
+
+- CTID: `190`
+- Hostname: `monitoring-core`
+- IP: `192.168.1.190`
+- `prometheus`: `active`, readiness `ready`
+- `grafana-server`: `active`, `/api/health` database `ok`, version `13.0.2`
+- `loki`: `active`, readiness `ready`
+- `alloy`: `active`
+- Endpoints:
+  - Prometheus: `http://192.168.1.190:9090`
+  - Grafana: `http://192.168.1.190:3000`
+  - Loki: `http://192.168.1.190:3100`
+
+Live CT `133` target evidence collected on 2026-06-14:
+
+- CTID: `133`
+- Hostname: `esus-pec-lxc-5437`
+- `alloy`: `active`
+- `prometheus-node-exporter`: `active`
+- `prometheus-nginx-exporter`: `active`
+- Node exporter metrics: `http://127.0.0.1:9100/metrics` returned success
+  inside CT `133`
+- Nginx exporter metrics: `http://127.0.0.1:9113/metrics` returned success
+  inside CT `133`
+- Nginx status endpoint: managed local-only `stub_status`
+- PostgreSQL exporter: `skipped`, because no approved DSN was provided with
+  `-ConfigurePostgresExporter`
+- JMX exporter: `skipped`, because Java service mutation is proposal-only until
+  staged JMX artifacts and a reviewed apply plan exist
+
+Prometheus target evidence collected on 2026-06-14:
+
+- `monitoring-core` at `http://localhost:9090/metrics`: `up`
+- `monitoring-core-alloy` at `http://localhost:12345/metrics`: `up`
+- `esus-pec-lxc-5437` node exporter at `http://192.168.1.209:9100/metrics`:
+  `up`
+- `esus-pec-lxc-5437` Nginx exporter at `http://192.168.1.209:9113/metrics`:
+  `up`
+- Optional PostgreSQL and JMX exporters are intentionally not in the default
+  scrape set until their guarded installers are applied.
+
+Loki evidence collected on 2026-06-14:
+
+- `GET /loki/api/v1/labels` returned `5` label names, confirming non-empty
+  Loki ingestion metadata without recording raw log content.
