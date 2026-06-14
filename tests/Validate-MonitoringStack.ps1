@@ -37,8 +37,47 @@ $artifacts = foreach ($artifact in $requiredArtifacts) {
   }
 }
 
-$combined = ($artifacts.Content) -join "`n"
-$requiredTerms = @(
+$artifactByPath = @{}
+foreach ($artifact in $artifacts) {
+  $artifactByPath[$artifact.Path] = $artifact
+}
+
+function Assert-ArtifactContainsTerm {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RelativePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Term,
+
+    [Parameter(Mandatory = $true)]
+    [string]$RequirementName
+  )
+
+  if ($artifactByPath[$RelativePath].Content -notmatch [regex]::Escape($Term)) {
+    throw "Missing $RequirementName term in ${RelativePath}: $Term"
+  }
+}
+
+function Get-RelativeArtifactPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FullPath
+  )
+
+  $rootPath = (Resolve-Path -LiteralPath $root).Path.TrimEnd("\", "/")
+  $resolvedPath = (Resolve-Path -LiteralPath $FullPath).Path
+  $relativePath = $resolvedPath.Substring($rootPath.Length).TrimStart("\", "/")
+  $relativePath -replace "\\", "/"
+}
+
+$narrativeContent = (
+  $artifacts |
+    Where-Object { $_.Path -match '^docs/' } |
+    Select-Object -ExpandProperty Content
+) -join "`n"
+
+$requiredNarrativeTerms = @(
   "CTID 190",
   "monitoring-core",
   "Prometheus",
@@ -49,11 +88,21 @@ $requiredTerms = @(
   "esus-pec-lxc-5437"
 )
 
-foreach ($term in $requiredTerms) {
-  if ($combined -notmatch [regex]::Escape($term)) {
-    throw "Missing monitoring stack term: $term"
+foreach ($term in $requiredNarrativeTerms) {
+  if ($narrativeContent -notmatch [regex]::Escape($term)) {
+    throw "Missing monitoring stack narrative term: $term"
   }
 }
+
+Assert-ArtifactContainsTerm "scripts/monitoring/Provision-MonitoringCore.ps1" "CTID 190" "monitoring core script"
+Assert-ArtifactContainsTerm "scripts/monitoring/Provision-MonitoringCore.ps1" "monitoring-core" "monitoring core script"
+Assert-ArtifactContainsTerm "scripts/monitoring/Install-MonitoringTargetAgent.ps1" "133" "monitoring target script"
+Assert-ArtifactContainsTerm "scripts/monitoring/Install-MonitoringTargetAgent.ps1" "esus-pec-lxc-5437" "monitoring target script"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/prometheus.yml" "Prometheus" "Prometheus template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/loki.yml" "Loki" "Loki template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-core.alloy" "Alloy" "Alloy core template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-linux-target.alloy" "Alloy" "Alloy target template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "Grafana" "Grafana datasource template"
 
 $nonDocumentationArtifacts = $artifacts | Where-Object { $_.Path -notmatch '^docs/' }
 foreach ($artifact in $nonDocumentationArtifacts) {
@@ -61,6 +110,33 @@ foreach ($artifact in $nonDocumentationArtifacts) {
     throw "Promtail agent configuration is not allowed in monitoring artifact: $($artifact.Path)"
   }
 }
+
+$secretScanFiles = @()
+foreach ($directory in @("scripts/monitoring", "docs/monitoring")) {
+  $directoryPath = Get-ArtifactPath $directory
+  if (Test-Path -LiteralPath $directoryPath -PathType Container) {
+    $secretScanFiles += Get-ChildItem -LiteralPath $directoryPath -Recurse -File | Select-Object -ExpandProperty FullName
+  }
+}
+
+foreach ($file in @(
+  "docs/superpowers/specs/2026-06-14-esus-pec-centralized-monitoring-design.md",
+  "tests/Validate-MonitoringStack.ps1"
+)) {
+  $filePath = Get-ArtifactPath $file
+  if (Test-Path -LiteralPath $filePath -PathType Leaf) {
+    $secretScanFiles += (Resolve-Path -LiteralPath $filePath).Path
+  }
+}
+
+$secretScanArtifacts = $secretScanFiles |
+  Sort-Object -Unique |
+  ForEach-Object {
+    [pscustomobject]@{
+      Path = Get-RelativeArtifactPath $_
+      Content = Get-Content -LiteralPath $_ -Raw
+    }
+  }
 
 $secretPatterns = @(
   @{
@@ -77,11 +153,11 @@ $secretPatterns = @(
   },
   @{
     Name = "secret assignment"
-    Pattern = '(?i)\b(password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*["'']?(?!\s*(<|\$\{|REDACTED|redacted|CHANGE_ME|changeme|placeholder|example|your-|YOUR_|__))[^\s#"'''']{12,}'
+    Pattern = '(?i)\b(password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*["'']?(?!\s*(<|\$\{|\$env:|\$script:|\$global:|\$local:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|REDACTED|redacted|CHANGE_ME|changeme|placeholder|example|your-|YOUR_|__))[A-Za-z0-9+/_=.-]{12,}["'']?'
   }
 )
 
-foreach ($artifact in $artifacts) {
+foreach ($artifact in $secretScanArtifacts) {
   foreach ($secretPattern in $secretPatterns) {
     if ($artifact.Content -match $secretPattern.Pattern) {
       throw "Monitoring artifact appears to contain an obvious committed secret ($($secretPattern.Name)): $($artifact.Path)"
