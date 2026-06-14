@@ -21,8 +21,9 @@ The first implementation must create reusable repository tooling for:
 - Installing Prometheus, Grafana, Loki, and Alloy as systemd services in CT `190`.
 - Generating non-secret baseline configuration for Prometheus scrape jobs, Loki,
   Alloy, and Grafana datasources.
-- Installing or configuring collection agents on the e-SUS PEC host and SIHA
-  VM `7001` when the target OS and access path are available.
+- Installing or configuring collection agents first on the e-SUS PEC LXC test
+  host `133 esus-pec-lxc-5437`; SIHA VM `7001` remains in scope as the next
+  target when the billing systems and target OS are ready.
 - Testing service health and scrape/log ingestion without printing credentials.
 - Documenting install, validation, rollback, and secret-handling procedures.
 
@@ -47,13 +48,18 @@ after enough time-series and log data exists.
 
 ### Targets
 
-- PEC e-SUS production: `esus.presidenteepitacio.sp.gov.br`, reachable through
-  the internal `192.168.1.25x:8080` address family.
-- SIHA: VM `7001`, containing billing systems.
+- Initial PEC target: LXC `133 esus-pec-lxc-5437`, the validated e-SUS PEC
+  5.4.37 LXC test instance. It currently runs the PEC Java service on `:8080`
+  and uses Nginx inside the same LXC for TLS termination.
+- Future PEC production target: `esus.presidenteepitacio.sp.gov.br`, reachable
+  through the internal `192.168.1.25x:8080` address family. It is not part of
+  the first agent rollout and differs from LXC `133` because it uses Tomcat on
+  the same machine instead of the Nginx termination pattern used by CT `133`.
+- Future SIHA target: VM `7001`, containing billing systems.
 
-The PEC production IP must be parameterized because the user provided
-`192.168.1.25x`, not a complete address. The tooling must accept
-`-PecTargetHost` and `-PecBaseUrl` parameters instead of hardcoding a guessed IP.
+The PEC production IP must remain parameterized because the user provided
+`192.168.1.25x`, not a complete address. The tooling must accept target
+parameters instead of hardcoding a guessed production IP.
 
 ## Data Collection
 
@@ -97,6 +103,9 @@ For PEC hosts that terminate traffic with Nginx, enable a local-only
 `stub_status` endpoint and scrape it through an Nginx exporter or Alloy
 Prometheus scrape component. The `stub_status` endpoint must bind to localhost or
 be restricted to the monitoring network, not exposed publicly.
+
+This applies to the first target, CT `133`. The future production PEC target must
+be handled through Tomcat/JVM collection instead of assuming Nginx exists.
 
 ### Logs
 
@@ -152,8 +161,9 @@ Live validation:
 - Prometheus `/-/ready` returns success.
 - Grafana `/api/health` returns success without printing admin credentials.
 - Loki `/ready` returns success.
-- Prometheus targets include the monitoring core and any configured PEC/SIHA
-  exporters.
+- Prometheus targets include the monitoring core and CT `133` exporters.
+- Production PEC and SIHA targets are documented as future additions, not
+  required live-validation targets for the first implementation.
 - Loki receives at least one non-secret log entry from CT `190`.
 
 ## Rollback
