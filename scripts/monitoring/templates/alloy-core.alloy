@@ -10,17 +10,32 @@ prometheus.exporter.unix "core" {
 
 prometheus.scrape "core_unix" {
   targets    = prometheus.exporter.unix.core.targets
+  forward_to = [prometheus.relabel.core_unix.receiver]
+}
+
+prometheus.relabel "core_unix" {
   forward_to = [prometheus.remote_write.local.receiver]
 
-  labels = {
-    job  = "monitoring-core-unix"
-    host = "monitoring-core"
-    ctid = "190"
+  rule {
+    target_label = "job"
+    replacement  = "monitoring-core-unix"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = "monitoring-core"
+  }
+
+  rule {
+    target_label = "ctid"
+    replacement  = "190"
   }
 }
 
 prometheus.remote_write "local" {
   endpoint {
+    // Task 3 provisioner must start CT 190 Prometheus with
+    // --web.enable-remote-write-receiver so this local write endpoint accepts samples.
     url = "http://127.0.0.1:9090/api/v1/write"
   }
 }
