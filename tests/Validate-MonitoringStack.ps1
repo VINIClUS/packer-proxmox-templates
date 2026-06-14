@@ -111,7 +111,7 @@ foreach ($obsoletePrometheusConsoleReference in @("--web.console.templates", "--
   }
 }
 
-foreach ($requiredDownloadHardeningTerm in @("download_url()", "--retry", "--retry-all-errors", "--connect-timeout")) {
+foreach ($requiredDownloadHardeningTerm in @("download_url()", "curl -4", "--retry", "--retry-all-errors", "--connect-timeout")) {
   if ($coreProvisioner -notmatch [regex]::Escape($requiredDownloadHardeningTerm)) {
     throw "Monitoring core provisioner downloads must include transient network hardening: $requiredDownloadHardeningTerm"
   }

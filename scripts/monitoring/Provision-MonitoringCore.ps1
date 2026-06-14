@@ -247,7 +247,7 @@ apt-get install -y -qq curl wget gpg ca-certificates apt-transport-https tar sys
 download_url() {
   local url="`$1"
   local output_path="`$2"
-  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 300 "`$url" -o "`$output_path"
+  curl -4 -fsSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 300 "`$url" -o "`$output_path"
 }
 
 install -d -m 0755 /etc/apt/keyrings
