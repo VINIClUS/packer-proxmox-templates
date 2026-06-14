@@ -94,10 +94,14 @@ Do not commit, paste, or print Grafana passwords, PostgreSQL DSNs, tokens,
 patient data, request body data, or raw sensitive logs in Git, chat, terminal
 logs, screenshots, or documentation.
 
-If PostgreSQL exporter access is needed, use the ignored local file
-`config/monitoring-targets.local.env` for `ESUS_PEC_POSTGRES_EXPORTER_DSN`, or
-provide the value through another approved secret channel. Keep only the
-variable name and storage location in tracked files; never include the value.
+The PostgreSQL exporter is optional. If PostgreSQL exporter access is needed,
+run `scripts/monitoring/Install-MonitoringTargetAgent.ps1` with
+`-ConfigurePostgresExporter` and provide `ESUS_PEC_POSTGRES_EXPORTER_DSN`
+through the ignored local file `config/monitoring-targets.local.env` or another
+approved secret channel. The local env file or environment variable only
+supplies the DSN; it is not applied unless the install script is run with
+`-ConfigurePostgresExporter`. Keep only the variable name and storage location
+in tracked files; never include the value.
 
 ## Rollback
 
@@ -133,11 +137,15 @@ Stop and disable target agents and exporters:
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl stop alloy prometheus-node-exporter prometheus-nginx-exporter prometheus-postgres-exporter 2>/dev/null || true; systemctl disable alloy prometheus-node-exporter prometheus-nginx-exporter prometheus-postgres-exporter 2>/dev/null || true'"
 ```
 
-Restore Nginx from a timestamped backup if the agent install changed the local
-stub status configuration:
+If the agent install created the managed Nginx stub status endpoint, roll it
+back by stopping the exporter if present and removing only the managed
+`/etc/nginx/conf.d/monitoring-stub-status.conf` file. Leave unrelated Nginx
+configuration untouched. The install script keeps a temporary failure-time
+rollback while updating the config, but it does not leave a durable post-success
+backup for later rollback.
 
 ```powershell
-rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'ls -1 /etc/nginx/sites-available/*.monitoring-backup-* /etc/nginx/conf.d/*.monitoring-backup-* 2>/dev/null || true'"
+rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl stop prometheus-nginx-exporter 2>/dev/null || true; systemctl disable prometheus-nginx-exporter 2>/dev/null || true; rm -f /etc/nginx/conf.d/monitoring-stub-status.conf'"
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'nginx -t && systemctl reload nginx'"
 ```
 
