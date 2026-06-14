@@ -104,6 +104,100 @@ pct exec $TargetCtid -- chown $remoteOwner $remotePath
   Invoke-ProxmoxBash -Script $pushScript | Out-Null
 }
 
+function Protect-LocalTemporarySecretFile {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($rule in @($acl.Access)) {
+      [void]$acl.RemoveAccessRuleAll($rule)
+    }
+
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $system = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-18"
+    $administrators = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-32-544"
+    foreach ($identity in @($currentUser, $system, $administrators)) {
+      $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @(
+        $identity,
+        [System.Security.AccessControl.FileSystemRights]::FullControl,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $acl.AddAccessRule($accessRule)
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+    return
+  }
+
+  & chmod 600 -- $Path
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to restrict local temporary secret file permissions."
+  }
+}
+
+function Push-ContainerSecretFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Content,
+    [string]$Owner = "root",
+    [string]$Group = "root",
+    [string]$Mode = "0600"
+  )
+
+  $localTemp = [System.IO.Path]::GetTempFileName()
+  $remoteTemp = $null
+  try {
+    Protect-LocalTemporarySecretFile -Path $localTemp
+    [System.IO.File]::WriteAllText($localTemp, $Content, [System.Text.UTF8Encoding]::new($false))
+
+    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/codex-monitoring-secret.XXXXXXXXXX").Trim()
+    $scpTarget = "{0}:{1}" -f $script:SshTarget, $remoteTemp
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      $scpOutput = & scp -i $script:SshKey -P $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $localTemp $scpTarget 2>&1 |
+        ForEach-Object { $_.ToString() }
+      $scpExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($scpExitCode -ne 0) {
+      $scpOutput
+      throw "SCP transfer for container secret file failed with exit code $scpExitCode."
+    }
+
+    $remotePath = ConvertTo-ShellSingleQuoted -Value $Path
+    $remoteDir = ConvertTo-ShellSingleQuoted -Value (Split-Path -Parent $Path).Replace("\", "/")
+    $remoteOwner = ConvertTo-ShellSingleQuoted -Value "${Owner}:${Group}"
+    $remoteMode = ConvertTo-ShellSingleQuoted -Value $Mode
+    $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+
+    $pushScript = @"
+set -euo pipefail
+chmod 0600 $remoteTempQuoted
+pct exec $TargetCtid -- mkdir -p $remoteDir
+pct push $TargetCtid $remoteTempQuoted $remotePath --perms $remoteMode >/dev/null
+pct exec $TargetCtid -- chown $remoteOwner $remotePath
+"@
+    Invoke-ProxmoxBash -Script $pushScript | Out-Null
+  } finally {
+    if (-not [string]::IsNullOrWhiteSpace($remoteTemp)) {
+      $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+      try {
+        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" | Out-Null
+      } catch {
+        Write-Warning "Failed to remove temporary Proxmox host secret file; remove it manually if present."
+      }
+    }
+
+    if (Test-Path -LiteralPath $localTemp -PathType Leaf) {
+      Remove-Item -LiteralPath $localTemp -Force
+    }
+  }
+}
+
 function Get-TemplateContent {
   param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -201,8 +295,7 @@ Assert-TargetContainerIdentity -ConfigText $ctConfig
 
 $ctStatus = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid").Trim()
 if ($ctStatus -notmatch "status:\s+running") {
-  Invoke-ProxmoxSsh -Command "pct start $TargetCtid >/dev/null" | Out-Null
-  Start-Sleep -Seconds 5
+  throw "CTID $TargetCtid ($TargetName) is not running. Start and verify the container manually before installing monitoring agents; this script will not mutate CT power state."
 }
 
 $runtimeHostname = (Invoke-ContainerBash -Script "hostname -s").Trim()
@@ -260,6 +353,19 @@ if ! command -v ss >/dev/null 2>&1 && [ ! -r /proc/net/tcp ]; then
   can_check_status_ports="false"
 fi
 
+nginx_stub_config="/etc/nginx/conf.d/monitoring-stub-status.conf"
+nginx_stub_marker="# Managed by scripts/monitoring/Install-MonitoringTargetAgent.ps1"
+
+get_managed_stub_status_port() {
+  if [ ! -f "$nginx_stub_config" ]; then
+    return 1
+  fi
+  if ! grep -Fqx "$nginx_stub_marker" "$nginx_stub_config"; then
+    return 1
+  fi
+  sed -n -E 's/^[[:space:]]*listen[[:space:]]+127\.0\.0\.1:([0-9]+);.*/\1/p' "$nginx_stub_config" | head -n 1
+}
+
 is_local_status_port_free() {
   port="$1"
 
@@ -277,29 +383,34 @@ is_local_status_port_free() {
   return 0
 }
 
-if [ "$can_check_status_ports" != "true" ]; then
-  printf 'nginx=skipped-status-port-check-unavailable\n'
-  printf 'nginx_exporter=skipped-status-port-check-unavailable\n'
-  exit 0
-fi
-
-nginx_status_port=""
-for candidate_port in 18080 18081 18082; do
-  if is_local_status_port_free "$candidate_port"; then
-    nginx_status_port="$candidate_port"
-    break
+restore_nginx_stub_config() {
+  backup_file="$1"
+  if [ -n "$backup_file" ] && [ -f "$backup_file" ]; then
+    cp -p "$backup_file" "$nginx_stub_config"
+  else
+    rm -f "$nginx_stub_config"
   fi
-done
+}
 
-if [ -z "$nginx_status_port" ]; then
-  printf 'nginx=skipped-status-port-unavailable\n'
-  printf 'nginx_exporter=skipped-status-port-unavailable\n'
-  exit 0
-fi
+write_nginx_stub_config() {
+  port="$1"
+  candidate_file="$(mktemp /etc/nginx/conf.d/monitoring-stub-status.conf.tmp.XXXXXX)"
+  backup_file=""
 
-cat >/etc/nginx/conf.d/monitoring-stub-status.conf <<NGINX
+  if [ -f "$nginx_stub_config" ]; then
+    if ! grep -Fqx "$nginx_stub_marker" "$nginx_stub_config"; then
+      rm -f "$candidate_file"
+      printf 'nginx=skipped-existing-unmanaged-stub-status-config\n'
+      return 2
+    fi
+    backup_file="$(mktemp /etc/nginx/conf.d/monitoring-stub-status.conf.bak.XXXXXX)"
+    cp -p "$nginx_stub_config" "$backup_file"
+  fi
+
+  cat >"$candidate_file" <<NGINX
+$nginx_stub_marker
 server {
-  listen 127.0.0.1:$nginx_status_port;
+  listen 127.0.0.1:$port;
   server_name 127.0.0.1 localhost;
 
   access_log off;
@@ -311,11 +422,69 @@ server {
   }
 }
 NGINX
+  chmod 0644 "$candidate_file"
+  mv "$candidate_file" "$nginx_stub_config"
 
-nginx -t >/dev/null
-systemctl reload nginx
-printf 'nginx=stub_status_local\n'
+  if ! nginx -t >/dev/null 2>&1; then
+    restore_nginx_stub_config "$backup_file"
+    rm -f "$backup_file"
+    echo "Generated nginx stub_status config failed validation; restored previous config." >&2
+    return 1
+  fi
+
+  if ! systemctl reload nginx >/dev/null 2>&1; then
+    restore_nginx_stub_config "$backup_file"
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx >/dev/null 2>&1 || true
+    fi
+    rm -f "$backup_file"
+    echo "nginx reload failed after stub_status update; restored previous config." >&2
+    return 1
+  fi
+
+  rm -f "$backup_file"
+  printf 'nginx=stub_status_local\n'
+  return 0
+}
+
+existing_managed_port="$(get_managed_stub_status_port || true)"
+nginx_status_port=""
+nginx_status_config="new-managed"
+
+if [ -n "$existing_managed_port" ]; then
+  nginx_status_port="$existing_managed_port"
+  nginx_status_config="reused-managed"
+elif [ "$can_check_status_ports" != "true" ]; then
+  printf 'nginx=skipped-status-port-check-unavailable\n'
+  printf 'nginx_exporter=skipped-status-port-check-unavailable\n'
+  exit 0
+else
+  for candidate_port in 18080 18081 18082; do
+    if is_local_status_port_free "$candidate_port"; then
+      nginx_status_port="$candidate_port"
+      break
+    fi
+  done
+fi
+
+if [ -z "$nginx_status_port" ]; then
+  printf 'nginx=skipped-status-port-unavailable\n'
+  printf 'nginx_exporter=skipped-status-port-unavailable\n'
+  exit 0
+fi
+
+set +e
+write_nginx_stub_config "$nginx_status_port"
+nginx_stub_write_status="$?"
+set -e
+if [ "$nginx_stub_write_status" -eq 2 ]; then
+  printf 'nginx_exporter=skipped-existing-unmanaged-stub-status-config\n'
+  exit 0
+elif [ "$nginx_stub_write_status" -ne 0 ]; then
+  exit "$nginx_stub_write_status"
+fi
 printf 'nginx_status_port=%s\n' "$nginx_status_port"
+printf 'nginx_status_config=%s\n' "$nginx_status_config"
 
 export DEBIAN_FRONTEND=noninteractive
 if apt-cache show prometheus-nginx-exporter >/dev/null 2>&1; then
@@ -361,7 +530,7 @@ if ($ConfigurePostgresExporter) {
   $postgresDsn = Get-LocalPostgresExporterDsn
   $postgresEnvContent = "DATA_SOURCE_NAME={0}`n" -f (ConvertTo-SystemdEnvironmentValue -Value $postgresDsn)
 
-  Push-ContainerFile -Path "/etc/monitoring/postgres-exporter.env" -Content $postgresEnvContent -Owner "root" -Group "root" -Mode "0600"
+  Push-ContainerSecretFile -Path "/etc/monitoring/postgres-exporter.env" -Content $postgresEnvContent -Owner "root" -Group "root" -Mode "0600"
   Invoke-ContainerBash -Script @'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -426,6 +595,7 @@ fi
   printf '\nSuggested guarded change:\n'
   printf 'Set JAVA_TOOL_OPTIONS=%s through a systemd drop-in only if the service already has an EnvironmentFile= or Environment= pattern.\n' "$javaagent_option"
   printf 'Do not download the JMX agent jar from this script; stage /opt/monitoring/jmx_prometheus_javaagent.jar after verifying its integrity.\n'
+  printf 'Do not apply automatically until the staged jar and config have checksum metadata and a rollback health-check plan.\n'
   printf 'Expose the JMX exporter on 127.0.0.1 or a firewall-restricted target port only.\n'
 } >"$proposal_file"
 chmod 0600 "$proposal_file"
@@ -435,48 +605,8 @@ if [ "$apply_requested" != "true" ]; then
   exit 0
 fi
 
-if [ "$service_found" != "true" ]; then
-  printf 'jmx=refused-service-missing\n'
-  exit 0
-fi
-
-if [ ! -s /opt/monitoring/jmx_prometheus_javaagent.jar ] || [ ! -s /etc/monitoring/jmx-exporter.yml ]; then
-  printf 'jmx=refused-missing-local-jmx-files\n'
-  exit 0
-fi
-
-if grep -Eq '^[[:space:]]*Environment(File)?=' "$unit_snapshot"; then
-  :
-else
-  printf 'jmx=refused-unrecognized-service-environment-pattern\n'
-  exit 0
-fi
-
-if grep -Eq 'JAVA_TOOL_OPTIONS|-javaagent:.*/jmx_prometheus_javaagent\.jar' "$unit_snapshot"; then
-  printf 'jmx=refused-existing-javaagent-configuration\n'
-  exit 0
-fi
-
-timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup_dir="/root/monitoring-jmx-backups"
-dropin_dir="/etc/systemd/system/e-SUS-PEC.service.d"
-dropin_file="$dropin_dir/90-monitoring-jmx.conf"
-install -d -m 0700 "$backup_dir"
-cp "$unit_snapshot" "$backup_dir/e-SUS-PEC.service.$timestamp.cat"
-if [ -f "$dropin_file" ]; then
-  cp "$dropin_file" "$backup_dir/90-monitoring-jmx.conf.$timestamp.bak"
-fi
-
-install -d -m 0755 "$dropin_dir"
-cat >"$dropin_file" <<UNIT
-[Service]
-Environment=JAVA_TOOL_OPTIONS=$javaagent_option
-UNIT
-chmod 0644 "$dropin_file"
-
-systemctl daemon-reload
-systemctl restart e-SUS-PEC.service
-printf 'jmx=applied-systemd-dropin\n'
+printf 'jmx=refused-apply-requires-validated-staged-artifacts\n'
+exit 0
 '@.Replace("__APPLY_JMX_SERVICE_CHANGE__", $(if ($ApplyJavaServiceChange) { "true" } else { "false" }))
 
   $jmxOutput = Invoke-ContainerBash -Script $jmxScript
