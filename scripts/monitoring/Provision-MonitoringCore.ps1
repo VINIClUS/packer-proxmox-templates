@@ -20,6 +20,7 @@ param(
 
 $script:PrometheusVersion = "3.12.0"
 $script:LokiVersion = "3.7.2"
+$script:ManagedMarker = "codex-monitoring-core"
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -92,20 +93,43 @@ function Push-ContainerFile {
   $remoteDir = ConvertTo-ShellSingleQuoted -Value (Split-Path -Parent $Path).Replace("\", "/")
   $remoteOwner = ConvertTo-ShellSingleQuoted -Value "${Owner}:${Group}"
   $remoteMode = ConvertTo-ShellSingleQuoted -Value $Mode
-  $remoteTemp = "/tmp/codex-monitoring-$Ctid-$([guid]::NewGuid().ToString("N"))"
 
   $pushScript = @"
 set -euo pipefail
-cat > '$remoteTemp.b64' <<'PUSH_PAYLOAD'
+umask 077
+work_dir="`$(mktemp -d /root/codex-monitoring-push.XXXXXX)"
+trap 'rm -rf "`$work_dir"' EXIT HUP INT TERM
+payload_b64="`$work_dir/payload.b64"
+payload_file="`$work_dir/payload"
+cat > "`$payload_b64" <<'PUSH_PAYLOAD'
 $encoded
 PUSH_PAYLOAD
-base64 -d '$remoteTemp.b64' > '$remoteTemp'
+base64 -d "`$payload_b64" > "`$payload_file"
 pct exec $Ctid -- mkdir -p $remoteDir
-pct push $Ctid '$remoteTemp' $remotePath --perms $remoteMode >/dev/null
+pct push $Ctid "`$payload_file" $remotePath --perms $remoteMode >/dev/null
 pct exec $Ctid -- chown $remoteOwner $remotePath
-rm -f '$remoteTemp' '$remoteTemp.b64'
 "@
   Invoke-ProxmoxBash -Script $pushScript | Out-Null
+}
+
+function Assert-MonitoringContainerConfig {
+  param([Parameter(Mandatory = $true)][string]$ConfigText)
+
+  $configLines = $ConfigText -split "`n"
+  $expectedHostnamePattern = ("^\s*hostname:\s*" + [regex]::Escape($Hostname) + "\s*$")
+  $expectedOstypePattern = "^\s*ostype:\s*debian\s*$"
+  $expectedIp = "ip=$IpCidr"
+
+  $hasExpectedHostname = $configLines | Where-Object { $_ -match $expectedHostnamePattern } | Select-Object -First 1
+  $hasExpectedOstype = $configLines | Where-Object { $_ -match $expectedOstypePattern } | Select-Object -First 1
+  $hasRequestedIp = $configLines | Where-Object {
+    $_ -match "^\s*net0:" -and $_ -match [regex]::Escape($expectedIp)
+  } | Select-Object -First 1
+  $hasManagedMarker = $ConfigText -match [regex]::Escape($script:ManagedMarker)
+
+  if (-not $hasExpectedHostname -or -not $hasExpectedOstype -or (-not $hasRequestedIp -and -not $hasManagedMarker)) {
+    throw "CTID $Ctid exists but does not match the requested monitoring CT. Expected hostname '$Hostname', ostype 'debian', and either net0 containing '$expectedIp' or description marker '$($script:ManagedMarker)'. Inspect manually on the Proxmox host with 'pct config $Ctid' before rerunning."
+  }
 }
 
 function Get-TemplateContent {
@@ -181,13 +205,17 @@ $script:SshTarget = "$sshUser@$sshHost"
 $ipAddress = ($IpCidr -split "/", 2)[0]
 
 $ctExists = (Invoke-ProxmoxSsh -Command "pct status $Ctid >/dev/null 2>&1; echo `$?").Trim() -eq "0"
-if (-not $ctExists) {
+if ($ctExists) {
+  $ctConfig = Invoke-ProxmoxSsh -Command "pct config $Ctid"
+  Assert-MonitoringContainerConfig -ConfigText $ctConfig
+} else {
   if ($SkipCreate) {
     throw "CTID $Ctid ($Hostname) does not exist and -SkipCreate was set."
   }
 
   $rootfs = "$Storage`:$RootfsSize"
   $net0 = "name=eth0,bridge=$Bridge,ip=$IpCidr,gw=$Gateway,firewall=1"
+  $description = "$($script:ManagedMarker); CTID $Ctid ($Hostname) provisioned by scripts/monitoring/Provision-MonitoringCore.ps1 (default CTID 190 monitoring-core). No secrets."
   $createScript = @"
 set -euo pipefail
 pct create $Ctid $(ConvertTo-ShellSingleQuoted -Value $Template) \
@@ -196,7 +224,7 @@ pct create $Ctid $(ConvertTo-ShellSingleQuoted -Value $Template) \
   --cores $Cores --memory $MemoryMb --swap $SwapMb \
   --net0 $(ConvertTo-ShellSingleQuoted -Value $net0) \
   --unprivileged 1 --features nesting=1,keyctl=1 --ostype debian --onboot 1 \
-  --description $(ConvertTo-ShellSingleQuoted -Value "CTID 190 monitoring-core provisioned by scripts/monitoring/Provision-MonitoringCore.ps1. No secrets.")
+  --description $(ConvertTo-ShellSingleQuoted -Value $description)
 "@
   Invoke-ProxmoxBash -Script $createScript | Out-Null
 }
@@ -217,30 +245,77 @@ apt-get update -qq
 apt-get install -y -qq curl wget gpg ca-certificates apt-transport-https tar systemd unzip >/dev/null
 
 install -d -m 0755 /etc/apt/keyrings
-if [ ! -s /etc/apt/keyrings/grafana.gpg ]; then
-  wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
-fi
-chmod 0644 /etc/apt/keyrings/grafana.gpg
+wget -q -O /etc/apt/keyrings/grafana.asc https://apt.grafana.com/gpg-full.key
+chmod 0644 /etc/apt/keyrings/grafana.asc
 cat >/etc/apt/sources.list.d/grafana.list <<'APT'
-deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main
+deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main
 APT
 apt-get update -qq
 apt-get install -y -qq grafana alloy >/dev/null
+
+arch="`$(dpkg --print-architecture 2>/dev/null || uname -m)"
+case "`$arch" in
+  amd64|x86_64)
+    release_arch="amd64"
+    ;;
+  *)
+    echo "Unsupported container architecture: `$arch. Monitoring core binary install supports amd64/x86_64 only." >&2
+    exit 1
+    ;;
+esac
+
+verify_release_asset() {
+  local checksums_file="`$1"
+  local asset_name="`$2"
+  local asset_path="`$3"
+  local expected
+
+  expected="`$(awk -v asset="`$asset_name" '
+    {
+      name = `$2
+      sub(/^\*/, "", name)
+      sub(/^\.\//, "", name)
+      if (name == asset) {
+        print `$1
+        found = 1
+        exit
+      }
+    }
+    END {
+      if (!found) {
+        exit 1
+      }
+    }
+  ' "`$checksums_file")" || {
+    echo "Checksum file does not contain expected asset: `$asset_name" >&2
+    exit 1
+  }
+
+  printf '%s  %s\n' "`$expected" "`$asset_path" | sha256sum -c - >/dev/null
+}
+
+cleanup_downloads() {
+  if [ -n "`${prom_tmp:-}" ]; then rm -rf "`$prom_tmp"; fi
+  if [ -n "`${loki_tmp:-}" ]; then rm -rf "`$loki_tmp"; fi
+}
+trap cleanup_downloads EXIT
 
 id prometheus >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/prometheus --shell /usr/sbin/nologin prometheus
 install -d -o prometheus -g prometheus -m 0755 /etc/prometheus /var/lib/prometheus
 install -d -o root -g root -m 0755 /usr/local/share/prometheus
 
 prom_tmp="`$(mktemp -d)"
-curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/prometheus-$($script:PrometheusVersion).linux-amd64.tar.gz" -o "`$prom_tmp/prometheus.tar.gz"
-tar -xzf "`$prom_tmp/prometheus.tar.gz" -C "`$prom_tmp"
-prom_dir="`$prom_tmp/prometheus-$($script:PrometheusVersion).linux-amd64"
+prom_asset="prometheus-$($script:PrometheusVersion).linux-`$release_arch.tar.gz"
+curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/`$prom_asset" -o "`$prom_tmp/`$prom_asset"
+curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$($script:PrometheusVersion)/sha256sums.txt" -o "`$prom_tmp/sha256sums.txt"
+verify_release_asset "`$prom_tmp/sha256sums.txt" "`$prom_asset" "`$prom_tmp/`$prom_asset"
+tar -xzf "`$prom_tmp/`$prom_asset" -C "`$prom_tmp"
+prom_dir="`$prom_tmp/prometheus-$($script:PrometheusVersion).linux-`$release_arch"
 install -m 0755 "`$prom_dir/prometheus" /usr/local/bin/prometheus
 install -m 0755 "`$prom_dir/promtool" /usr/local/bin/promtool
 rm -rf /usr/local/share/prometheus/consoles /usr/local/share/prometheus/console_libraries
 cp -R "`$prom_dir/consoles" /usr/local/share/prometheus/consoles
 cp -R "`$prom_dir/console_libraries" /usr/local/share/prometheus/console_libraries
-rm -rf "`$prom_tmp"
 chown -R root:root /usr/local/share/prometheus
 
 cat >/etc/systemd/system/prometheus.service <<'UNIT'
@@ -273,11 +348,17 @@ id loki >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/lok
 install -d -o loki -g loki -m 0755 /etc/loki /var/lib/loki /var/lib/loki/chunks /var/lib/loki/rules /var/lib/loki/compactor
 
 loki_tmp="`$(mktemp -d)"
-curl -fsSL "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/loki-linux-amd64.zip" -o "`$loki_tmp/loki.zip"
-unzip -q -o "`$loki_tmp/loki.zip" -d "`$loki_tmp"
-loki_bin="`$(find "`$loki_tmp" -maxdepth 1 -type f -name 'loki*' | head -1)"
+loki_asset="loki-linux-`$release_arch.zip"
+curl -fsSL "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/`$loki_asset" -o "`$loki_tmp/`$loki_asset"
+curl -fsSL "https://github.com/grafana/loki/releases/download/v$($script:LokiVersion)/SHA256SUMS" -o "`$loki_tmp/SHA256SUMS"
+verify_release_asset "`$loki_tmp/SHA256SUMS" "`$loki_asset" "`$loki_tmp/`$loki_asset"
+unzip -q -o "`$loki_tmp/`$loki_asset" -d "`$loki_tmp"
+loki_bin="`$loki_tmp/loki-linux-`$release_arch"
+if [ ! -f "`$loki_bin" ]; then
+  echo "Loki archive did not contain expected binary path: loki-linux-`$release_arch" >&2
+  exit 1
+fi
 install -m 0755 "`$loki_bin" /usr/local/bin/loki
-rm -rf "`$loki_tmp"
 
 cat >/etc/systemd/system/loki.service <<'UNIT'
 [Unit]
