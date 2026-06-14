@@ -117,6 +117,12 @@ foreach ($requiredDownloadHardeningTerm in @("download_url()", "curl -4", "--ret
   }
 }
 
+foreach ($requiredSshWrapperTerm in @('$nativeErrorActionPreference', '$ErrorActionPreference = "Continue"', '$LASTEXITCODE')) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredSshWrapperTerm)) {
+    throw "Monitoring core provisioner SSH wrapper must safely capture native stderr and check exit code: $requiredSshWrapperTerm"
+  }
+}
+
 $nonDocumentationArtifacts = $artifacts | Where-Object { $_.Path -notmatch '^docs/' }
 foreach ($artifact in $nonDocumentationArtifacts) {
   if ($artifact.Content -match '(?im)\bpromtail\b') {

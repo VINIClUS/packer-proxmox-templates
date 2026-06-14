@@ -50,10 +50,19 @@ function Invoke-ProxmoxSsh {
     [Parameter(Mandatory = $true)][string]$Command
   )
 
-  $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget $Command 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  $nativeErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget $Command 2>&1 |
+      ForEach-Object { "$_" }
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $nativeErrorActionPreference
+  }
+
+  if ($exitCode -ne 0) {
     $output
-    throw "Remote Proxmox command failed with exit code $LASTEXITCODE."
+    throw "Remote Proxmox command failed with exit code $exitCode."
   }
   return ($output -join "`n")
 }
@@ -62,10 +71,19 @@ function Invoke-ProxmoxBash {
   param([Parameter(Mandatory = $true)][string]$Script)
 
   $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
-  $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget "echo $encoded | base64 -d | bash -se" 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  $nativeErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget "echo $encoded | base64 -d | bash -se" 2>&1 |
+      ForEach-Object { "$_" }
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $nativeErrorActionPreference
+  }
+
+  if ($exitCode -ne 0) {
     $output
-    throw "Remote Proxmox bash script failed with exit code $LASTEXITCODE."
+    throw "Remote Proxmox bash script failed with exit code $exitCode."
   }
   return ($output -join "`n")
 }
