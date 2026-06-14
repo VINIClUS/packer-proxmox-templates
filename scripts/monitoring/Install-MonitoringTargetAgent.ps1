@@ -255,9 +255,51 @@ if ! command -v nginx >/dev/null 2>&1; then
   exit 0
 fi
 
-cat >/etc/nginx/conf.d/monitoring-stub-status.conf <<'NGINX'
+can_check_status_ports="true"
+if ! command -v ss >/dev/null 2>&1 && [ ! -r /proc/net/tcp ]; then
+  can_check_status_ports="false"
+fi
+
+is_local_status_port_free() {
+  port="$1"
+
+  if command -v ss >/dev/null 2>&1; then
+    if ss -H -ltn 2>/dev/null | awk -v port="$port" '{ local_address = $4; sub(/^.*:/, "", local_address); if (local_address == port) { found = 1 } } END { exit found ? 0 : 1 }'; then
+      return 1
+    fi
+    return 0
+  fi
+
+  port_hex="$(printf '%04X' "$port")"
+  if awk -v port_hex=":$port_hex" 'NR > 1 && $4 == "0A" && index($2, port_hex) { found = 1 } END { exit found ? 0 : 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+if [ "$can_check_status_ports" != "true" ]; then
+  printf 'nginx=skipped-status-port-check-unavailable\n'
+  printf 'nginx_exporter=skipped-status-port-check-unavailable\n'
+  exit 0
+fi
+
+nginx_status_port=""
+for candidate_port in 18080 18081 18082; do
+  if is_local_status_port_free "$candidate_port"; then
+    nginx_status_port="$candidate_port"
+    break
+  fi
+done
+
+if [ -z "$nginx_status_port" ]; then
+  printf 'nginx=skipped-status-port-unavailable\n'
+  printf 'nginx_exporter=skipped-status-port-unavailable\n'
+  exit 0
+fi
+
+cat >/etc/nginx/conf.d/monitoring-stub-status.conf <<NGINX
 server {
-  listen 127.0.0.1:8088;
+  listen 127.0.0.1:$nginx_status_port;
   server_name 127.0.0.1 localhost;
 
   access_log off;
@@ -273,6 +315,7 @@ NGINX
 nginx -t >/dev/null
 systemctl reload nginx
 printf 'nginx=stub_status_local\n'
+printf 'nginx_status_port=%s\n' "$nginx_status_port"
 
 export DEBIAN_FRONTEND=noninteractive
 if apt-cache show prometheus-nginx-exporter >/dev/null 2>&1; then
@@ -298,7 +341,7 @@ After=network-online.target nginx.service
 
 [Service]
 Type=simple
-ExecStart=$exporter_bin --nginx.scrape-uri=http://127.0.0.1:8088/nginx_status --web.listen-address=0.0.0.0:9113
+ExecStart=$exporter_bin --nginx.scrape-uri=http://127.0.0.1:$nginx_status_port/nginx_status --web.listen-address=0.0.0.0:9113
 Restart=always
 RestartSec=5
 
