@@ -104,6 +104,13 @@ Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-core.alloy" "All
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-linux-target.alloy" "Alloy" "Alloy target template"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "Grafana" "Grafana datasource template"
 
+$coreProvisioner = $artifactByPath["scripts/monitoring/Provision-MonitoringCore.ps1"].Content
+foreach ($obsoletePrometheusConsoleReference in @("--web.console.templates", "--web.console.libraries", "/usr/local/share/prometheus/consoles", "/usr/local/share/prometheus/console_libraries")) {
+  if ($coreProvisioner -match [regex]::Escape($obsoletePrometheusConsoleReference)) {
+    throw "Prometheus 3.x console assets are not bundled; remove obsolete provisioner reference: $obsoletePrometheusConsoleReference"
+  }
+}
+
 $nonDocumentationArtifacts = $artifacts | Where-Object { $_.Path -notmatch '^docs/' }
 foreach ($artifact in $nonDocumentationArtifacts) {
   if ($artifact.Content -match '(?im)\bpromtail\b') {

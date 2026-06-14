@@ -302,7 +302,6 @@ trap cleanup_downloads EXIT
 
 id prometheus >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/prometheus --shell /usr/sbin/nologin prometheus
 install -d -o prometheus -g prometheus -m 0755 /etc/prometheus /var/lib/prometheus
-install -d -o root -g root -m 0755 /usr/local/share/prometheus
 
 prom_tmp="`$(mktemp -d)"
 prom_asset="prometheus-$($script:PrometheusVersion).linux-`$release_arch.tar.gz"
@@ -313,10 +312,6 @@ tar -xzf "`$prom_tmp/`$prom_asset" -C "`$prom_tmp"
 prom_dir="`$prom_tmp/prometheus-$($script:PrometheusVersion).linux-`$release_arch"
 install -m 0755 "`$prom_dir/prometheus" /usr/local/bin/prometheus
 install -m 0755 "`$prom_dir/promtool" /usr/local/bin/promtool
-rm -rf /usr/local/share/prometheus/consoles /usr/local/share/prometheus/console_libraries
-cp -R "`$prom_dir/consoles" /usr/local/share/prometheus/consoles
-cp -R "`$prom_dir/console_libraries" /usr/local/share/prometheus/console_libraries
-chown -R root:root /usr/local/share/prometheus
 
 cat >/etc/systemd/system/prometheus.service <<'UNIT'
 [Unit]
@@ -332,8 +327,6 @@ Type=simple
 ExecStart=/usr/local/bin/prometheus \
   --config.file=/etc/prometheus/prometheus.yml \
   --storage.tsdb.path=/var/lib/prometheus \
-  --web.console.templates=/usr/local/share/prometheus/consoles \
-  --web.console.libraries=/usr/local/share/prometheus/console_libraries \
   --web.listen-address=0.0.0.0:9090 \
   --web.enable-lifecycle \
   --web.enable-remote-write-receiver
