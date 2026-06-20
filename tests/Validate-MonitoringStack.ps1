@@ -75,6 +75,21 @@ foreach ($pinnedArtifact in $pinnedApplicationExporterPatterns.GetEnumerator()) 
   }
 }
 
+$checksumValidationPatterns = @{
+  postgres_exporter = '(?is)(?:\$postgresExporterSha256|__POSTGRES_EXPORTER_SHA256__).{0,500}\bsha256sum\s+-c\b|\bsha256sum\s+-c\b.{0,500}(?:\$postgresExporterSha256|__POSTGRES_EXPORTER_SHA256__)'
+  jmx_exporter = '(?is)(?:\$jmxExporterSha256|__JMX_EXPORTER_SHA256__).{0,500}\bsha256sum\s+-c\b|\bsha256sum\s+-c\b.{0,500}(?:\$jmxExporterSha256|__JMX_EXPORTER_SHA256__)'
+}
+
+if ($activeApplicationExporterProvisioner -notmatch '(?i)\bsha256sum\s+-c\b') {
+  throw "Application exporter provisioner must validate downloads with sha256sum -c."
+}
+
+foreach ($checksumValidation in $checksumValidationPatterns.GetEnumerator()) {
+  if ($activeApplicationExporterProvisioner -notmatch $checksumValidation.Value) {
+    throw "Application exporter checksum must be used near sha256sum -c: $($checksumValidation.Key)"
+  }
+}
+
 foreach ($term in @(
   "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
   "/test/InstallationConfig",
@@ -90,13 +105,21 @@ foreach ($term in @(
 }
 
 foreach ($requiredFunctionUse in @("wait_http_ready", "rollback_jmx")) {
-  $occurrenceCount = [regex]::Matches(
-    $activeApplicationExporterProvisioner,
-    "\b$([regex]::Escape($requiredFunctionUse))\b",
-    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
-  ).Count
-  if ($occurrenceCount -lt 2) {
-    throw "Application exporter provisioner must declare and call function: $requiredFunctionUse"
+  $escapedFunctionName = [regex]::Escape($requiredFunctionUse)
+  $functionDeclarationPattern =
+    "(?im)^\s*(?:function\s+$escapedFunctionName\b|$escapedFunctionName\s*\(\))"
+
+  if ($activeApplicationExporterProvisioner -notmatch $functionDeclarationPattern) {
+    throw "Application exporter provisioner must declare function: $requiredFunctionUse"
+  }
+
+  $nonDeclarationLines = (
+    $activeApplicationExporterProvisioner -split "`r?`n" |
+      Where-Object { $_ -notmatch $functionDeclarationPattern }
+  ) -join "`n"
+
+  if ($nonDeclarationLines -notmatch "(?i)\b$escapedFunctionName\b") {
+    throw "Application exporter provisioner must call function: $requiredFunctionUse"
   }
 }
 
@@ -240,24 +263,36 @@ $ct133Expressions = @(
       }
     }
   }
-) -join "`n"
+)
+$ct133NormalizedExpressions = @(
+  $ct133Expressions | ForEach-Object { $_ -replace '\s+', '' }
+)
+$ct133NormalizedExpressionSet = $ct133NormalizedExpressions -join "`n"
 
 foreach ($term in @(
   'instance="192.168.1.209:9187"',
-  'instance="192.168.1.209:9404"',
-  "pg_up",
-  "pg_stat_database",
-  "jvm_memory",
-  "jvm_gc",
-  "jvm_threads"
+  'instance="192.168.1.209:9404"'
 )) {
-  if ($ct133Expressions -notmatch [regex]::Escape($term)) {
+  $normalizedTerm = $term -replace '\s+', ''
+  if ($ct133NormalizedExpressionSet -notmatch [regex]::Escape($normalizedTerm)) {
     throw "Missing CT 133 application exporter dashboard term: $term"
   }
 }
 
+foreach ($metricPattern in @(
+  '\bpg_up\b',
+  '\bpg_stat_database',
+  '\bjvm_memory',
+  '\bjvm_gc',
+  '\bjvm_threads'
+)) {
+  if ($ct133NormalizedExpressionSet -notmatch $metricPattern) {
+    throw "Missing CT 133 application exporter dashboard metric pattern: $metricPattern"
+  }
+}
+
 foreach ($obsoleteCt133Job in @("esus-pec-lxc-5437-node", "esus-pec-lxc-5437-nginx")) {
-  if ($ct133Expressions -match [regex]::Escape($obsoleteCt133Job)) {
+  if ($ct133NormalizedExpressionSet -match [regex]::Escape($obsoleteCt133Job)) {
     throw "CT 133 dashboard references obsolete Prometheus job label: $obsoleteCt133Job"
   }
 }
@@ -266,7 +301,8 @@ foreach ($requiredCt133Selector in @(
   'instance="192.168.1.209:9100"',
   'instance="192.168.1.209:9113"'
 )) {
-  if ($ct133Expressions -notmatch [regex]::Escape($requiredCt133Selector)) {
+  $normalizedSelector = $requiredCt133Selector -replace '\s+', ''
+  if ($ct133NormalizedExpressionSet -notmatch [regex]::Escape($normalizedSelector)) {
     throw "CT 133 dashboard must use observed Prometheus selector: $requiredCt133Selector"
   }
 }
@@ -378,12 +414,29 @@ $activePrometheusTemplate = (
     Where-Object { $_ -notmatch '^\s*#' }
 ) -join "`n"
 
+$esusPecJobPattern =
+  '(?ms)^\s*-\s*job_name:\s*["'']?esus-pec-lxc-5437["'']?\s*$.*?(?=^\s*-\s*job_name:|\z)'
+$esusPecJobMatch = [regex]::Match($activePrometheusTemplate, $esusPecJobPattern)
+if (-not $esusPecJobMatch.Success) {
+  throw "Missing active Prometheus job block: esus-pec-lxc-5437"
+}
+
+$esusPecJobBlock = $esusPecJobMatch.Value
+$targetsMatch = [regex]::Match(
+  $esusPecJobBlock,
+  '(?ms)^\s*(?:-\s*)?targets:\s*$.*?(?=^\s*[A-Za-z_][A-Za-z0-9_-]*:\s*|\z)'
+)
+if (-not $targetsMatch.Success) {
+  throw "Prometheus job esus-pec-lxc-5437 is missing an active targets block."
+}
+
+$esusPecTargetsBlock = $targetsMatch.Value
 foreach ($term in @(
   "ESUS_PEC_LXC_TARGET_METRICS_HOST:9187",
   "ESUS_PEC_LXC_TARGET_METRICS_HOST:9404"
 )) {
   $activeTargetPattern = "(?m)^\s*-\s*$([regex]::Escape($term))\s*$"
-  if ($activePrometheusTemplate -notmatch $activeTargetPattern) {
+  if ($esusPecTargetsBlock -notmatch $activeTargetPattern) {
     throw "Missing application exporter Prometheus target: $term"
   }
 }
