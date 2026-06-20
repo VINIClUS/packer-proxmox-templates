@@ -142,10 +142,14 @@ $postgresSql =
 foreach ($term in @(
   "CREATE SCHEMA IF NOT EXISTS postgres_exporter",
   "SECURITY DEFINER",
-  "get_pg_stat_activity",
-  "get_pg_stat_replication",
-  "REVOKE EXECUTE ON FUNCTION get_pg_stat_activity() FROM PUBLIC",
-  "REVOKE EXECUTE ON FUNCTION get_pg_stat_replication() FROM PUBLIC",
+  "CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_activity()",
+  "CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_replication()",
+  "SELECT * FROM postgres_exporter.get_pg_stat_activity()",
+  "SELECT * FROM postgres_exporter.get_pg_stat_replication()",
+  "REVOKE EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() FROM PUBLIC",
+  "REVOKE EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_replication() FROM PUBLIC",
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() TO prometheus_exporter",
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_replication() TO prometheus_exporter",
   "GRANT SELECT ON postgres_exporter.pg_stat_activity",
   "GRANT SELECT ON postgres_exporter.pg_stat_replication"
 )) {
