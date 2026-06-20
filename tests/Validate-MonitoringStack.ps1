@@ -6,11 +6,14 @@ $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $requiredArtifacts = @(
   "scripts/monitoring/Provision-MonitoringCore.ps1",
   "scripts/monitoring/Install-MonitoringTargetAgent.ps1",
+  "scripts/monitoring/Configure-EsusPecApplicationExporters.ps1",
   "scripts/monitoring/templates/prometheus.yml",
   "scripts/monitoring/templates/loki.yml",
   "scripts/monitoring/templates/alloy-core.alloy",
   "scripts/monitoring/templates/alloy-linux-target.alloy",
   "scripts/monitoring/templates/grafana-datasources.yml",
+  "scripts/monitoring/templates/postgres-exporter-9.6.sql",
+  "scripts/monitoring/templates/jmx-exporter.yml",
   "scripts/monitoring/Publish-GrafanaDashboards.ps1",
   "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1",
   "scripts/monitoring/dashboards/esus-monitoring-overview.json",
@@ -46,6 +49,59 @@ $artifacts = foreach ($artifact in $requiredArtifacts) {
 $artifactByPath = @{}
 foreach ($artifact in $artifacts) {
   $artifactByPath[$artifact.Path] = $artifact
+}
+
+$applicationExporterProvisioner =
+  $artifactByPath["scripts/monitoring/Configure-EsusPecApplicationExporters.ps1"].Content
+
+foreach ($term in @(
+  "0.19.1",
+  "229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0",
+  "1.6.0",
+  "a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e",
+  "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
+  "/test/InstallationConfig",
+  "prometheus_exporter",
+  "127.0.0.1:5433",
+  "DATA_SOURCE_PASS_FILE",
+  "monitoring-jmx.conf",
+  "JAVA_TOOL_OPTIONS",
+  "wait_http_ready",
+  "rollback_jmx"
+)) {
+  if ($applicationExporterProvisioner -notmatch [regex]::Escape($term)) {
+    throw "Missing application exporter provisioner term: $term"
+  }
+}
+
+foreach ($forbiddenTerm in @(
+  "SUPERUSER",
+  "ALTER SYSTEM",
+  "listen_addresses = '*'"
+)) {
+  if ($applicationExporterProvisioner -match [regex]::Escape($forbiddenTerm)) {
+    throw "Application exporter provisioner contains forbidden term: $forbiddenTerm"
+  }
+}
+
+$postgresSql =
+  $artifactByPath["scripts/monitoring/templates/postgres-exporter-9.6.sql"].Content
+
+foreach ($term in @(
+  "CREATE SCHEMA IF NOT EXISTS postgres_exporter",
+  "SECURITY DEFINER",
+  "get_pg_stat_activity",
+  "get_pg_stat_replication",
+  "GRANT SELECT ON postgres_exporter.pg_stat_activity",
+  "GRANT SELECT ON postgres_exporter.pg_stat_replication"
+)) {
+  if ($postgresSql -notmatch [regex]::Escape($term)) {
+    throw "Missing PostgreSQL 9.6 exporter SQL term: $term"
+  }
+}
+
+if ($postgresSql -match "CREATE EXTENSION.*pg_stat_statements") {
+  throw "PostgreSQL exporter bootstrap must not enable pg_stat_statements implicitly."
 }
 
 function Assert-ArtifactContainsTerm {
@@ -144,6 +200,20 @@ foreach ($dashboardArtifact in $dashboardArtifacts) {
 }
 
 $ct133Dashboard = $artifactByPath["scripts/monitoring/dashboards/esus-pec-ct133.json"].Content
+foreach ($term in @(
+  'instance=\"192.168.1.209:9187\"',
+  'instance=\"192.168.1.209:9404\"',
+  "pg_up",
+  "pg_stat_database",
+  "jvm_memory",
+  "jvm_gc",
+  "jvm_threads"
+)) {
+  if ($ct133Dashboard -notmatch [regex]::Escape($term)) {
+    throw "Missing CT 133 application exporter dashboard term: $term"
+  }
+}
+
 foreach ($obsoleteCt133Job in @("esus-pec-lxc-5437-node", "esus-pec-lxc-5437-nginx")) {
   if ($ct133Dashboard -match [regex]::Escape($obsoleteCt133Job)) {
     throw "CT 133 dashboard references obsolete Prometheus job label: $obsoleteCt133Job"
@@ -261,6 +331,15 @@ foreach ($artifact in $secretScanArtifacts) {
 }
 
 $prometheusTemplate = Get-Content -LiteralPath (Get-ArtifactPath "scripts/monitoring/templates/prometheus.yml") -Raw
+foreach ($term in @(
+  "ESUS_PEC_LXC_TARGET_METRICS_HOST:9187",
+  "ESUS_PEC_LXC_TARGET_METRICS_HOST:9404"
+)) {
+  if ($prometheusTemplate -notmatch [regex]::Escape($term)) {
+    throw "Missing application exporter Prometheus target: $term"
+  }
+}
+
 foreach ($term in @("monitoring-core", "esus-pec-lxc-5437", "localhost:9090", "133")) {
   if ($prometheusTemplate -notmatch [regex]::Escape($term)) {
     throw "Missing Prometheus template term: $term"
