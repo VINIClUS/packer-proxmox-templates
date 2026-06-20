@@ -31,12 +31,6 @@ function ConvertTo-ShellSingleQuoted {
   return "'" + ($Value -replace "'", "'\''") + "'"
 }
 
-function ConvertTo-SystemdEnvironmentValue {
-  param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value)
-  $escaped = $Value.Replace("\", "\\").Replace('"', '\"')
-  return '"' + $escaped + '"'
-}
-
 function Invoke-ProxmoxSsh {
   param([Parameter(Mandatory = $true)][string]$Command)
 
@@ -104,100 +98,6 @@ pct exec $TargetCtid -- chown $remoteOwner $remotePath
   Invoke-ProxmoxBash -Script $pushScript | Out-Null
 }
 
-function Protect-LocalTemporarySecretFile {
-  param([Parameter(Mandatory = $true)][string]$Path)
-
-  if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
-    $acl = Get-Acl -LiteralPath $Path
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($rule in @($acl.Access)) {
-      [void]$acl.RemoveAccessRuleAll($rule)
-    }
-
-    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-    $system = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-18"
-    $administrators = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-32-544"
-    foreach ($identity in @($currentUser, $system, $administrators)) {
-      $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @(
-        $identity,
-        [System.Security.AccessControl.FileSystemRights]::FullControl,
-        [System.Security.AccessControl.AccessControlType]::Allow
-      )
-      $acl.AddAccessRule($accessRule)
-    }
-    Set-Acl -LiteralPath $Path -AclObject $acl
-    return
-  }
-
-  & chmod 600 -- $Path
-  if ($LASTEXITCODE -ne 0) {
-    throw "Failed to restrict local temporary secret file permissions."
-  }
-}
-
-function Push-ContainerSecretFile {
-  param(
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Content,
-    [string]$Owner = "root",
-    [string]$Group = "root",
-    [string]$Mode = "0600"
-  )
-
-  $localTemp = [System.IO.Path]::GetTempFileName()
-  $remoteTemp = $null
-  try {
-    Protect-LocalTemporarySecretFile -Path $localTemp
-    [System.IO.File]::WriteAllText($localTemp, $Content, [System.Text.UTF8Encoding]::new($false))
-
-    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/codex-monitoring-secret.XXXXXXXXXX").Trim()
-    $scpTarget = "{0}:{1}" -f $script:SshTarget, $remoteTemp
-
-    $previousErrorActionPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-      $scpOutput = & scp -i $script:SshKey -P $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $localTemp $scpTarget 2>&1 |
-        ForEach-Object { $_.ToString() }
-      $scpExitCode = $LASTEXITCODE
-    } finally {
-      $ErrorActionPreference = $previousErrorActionPreference
-    }
-
-    if ($scpExitCode -ne 0) {
-      $scpOutput
-      throw "SCP transfer for container secret file failed with exit code $scpExitCode."
-    }
-
-    $remotePath = ConvertTo-ShellSingleQuoted -Value $Path
-    $remoteDir = ConvertTo-ShellSingleQuoted -Value (Split-Path -Parent $Path).Replace("\", "/")
-    $remoteOwner = ConvertTo-ShellSingleQuoted -Value "${Owner}:${Group}"
-    $remoteMode = ConvertTo-ShellSingleQuoted -Value $Mode
-    $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
-
-    $pushScript = @"
-set -euo pipefail
-chmod 0600 $remoteTempQuoted
-pct exec $TargetCtid -- mkdir -p $remoteDir
-pct push $TargetCtid $remoteTempQuoted $remotePath --perms $remoteMode >/dev/null
-pct exec $TargetCtid -- chown $remoteOwner $remotePath
-"@
-    Invoke-ProxmoxBash -Script $pushScript | Out-Null
-  } finally {
-    if (-not [string]::IsNullOrWhiteSpace($remoteTemp)) {
-      $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
-      try {
-        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" | Out-Null
-      } catch {
-        Write-Warning "Failed to remove temporary Proxmox host secret file; remove it manually if present."
-      }
-    }
-
-    if (Test-Path -LiteralPath $localTemp -PathType Leaf) {
-      Remove-Item -LiteralPath $localTemp -Force
-    }
-  }
-}
-
 function Get-TemplateContent {
   param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -223,39 +123,6 @@ function Assert-TargetContainerIdentity {
   if ($configuredName -ne $TargetName) {
     throw "CTID $TargetCtid exists but hostname is '$configuredName', expected '$TargetName'. Refusing to mutate an unrelated container."
   }
-}
-
-function Get-LocalPostgresExporterDsn {
-  if (-not [string]::IsNullOrWhiteSpace($env:ESUS_PEC_POSTGRES_EXPORTER_DSN)) {
-    return $env:ESUS_PEC_POSTGRES_EXPORTER_DSN
-  }
-
-  $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "../..")
-  $relativeEnvFile = "config/monitoring-targets.local.env"
-  $envFile = Join-Path $repoRoot $relativeEnvFile
-  if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
-    throw "Postgres exporter DSN was not provided. Set ESUS_PEC_POSTGRES_EXPORTER_DSN or create ignored local file config/monitoring-targets.local.env."
-  }
-
-  $previousErrorActionPreference = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  try {
-    & git -C $repoRoot check-ignore -q -- $relativeEnvFile
-    $ignoreExitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-  }
-  if ($ignoreExitCode -ne 0) {
-    throw "Refusing to read config/monitoring-targets.local.env because git does not report it as ignored."
-  }
-
-  foreach ($line in Get-Content -LiteralPath $envFile) {
-    if ($line -match "^\s*ESUS_PEC_POSTGRES_EXPORTER_DSN\s*=\s*(?<value>.+?)\s*$") {
-      return $matches.value.Trim().Trim('"').Trim("'")
-    }
-  }
-
-  throw "config/monitoring-targets.local.env does not define ESUS_PEC_POSTGRES_EXPORTER_DSN."
 }
 
 function Read-KeyValueOutput {
@@ -525,101 +392,26 @@ printf 'nginx_exporter=active\n'
 '@
 $nginxState = Read-KeyValueOutput -Output $nginxOutput
 
-$postgresStatus = "skipped"
-if ($ConfigurePostgresExporter) {
-  $postgresDsn = Get-LocalPostgresExporterDsn
-  $postgresEnvContent = "DATA_SOURCE_NAME={0}`n" -f (ConvertTo-SystemdEnvironmentValue -Value $postgresDsn)
-
-  Push-ContainerSecretFile -Path "/etc/monitoring/postgres-exporter.env" -Content $postgresEnvContent -Owner "root" -Group "root" -Mode "0600"
-  Invoke-ContainerBash -Script @'
-set -euo pipefail
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-if ! apt-cache show prometheus-postgres-exporter >/dev/null 2>&1; then
-  echo "prometheus-postgres-exporter apt package is not available on this target." >&2
-  exit 1
-fi
-apt-get install -y -qq prometheus-postgres-exporter >/dev/null
-
-postgres_exporter_bin="$(command -v prometheus-postgres-exporter || command -v postgres_exporter || true)"
-if [ -z "$postgres_exporter_bin" ]; then
-  echo "Postgres exporter binary was not found after package install." >&2
-  exit 1
-fi
-
-cat >/etc/systemd/system/prometheus-postgres-exporter.service <<UNIT
-[Unit]
-Description=Prometheus PostgreSQL Exporter
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=/etc/monitoring/postgres-exporter.env
-ExecStart=$postgres_exporter_bin --web.listen-address=0.0.0.0:9187
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-systemctl daemon-reload
-systemctl enable prometheus-postgres-exporter >/dev/null
-systemctl restart prometheus-postgres-exporter
-'@ | Out-Null
-  $postgresStatus = "configured"
-}
-
-$jmxStatus = "skipped"
-if ($ConfigureJmxExporter) {
-  $jmxScript = @'
-set -euo pipefail
-apply_requested="__APPLY_JMX_SERVICE_CHANGE__"
-javaagent_option="-javaagent:/opt/monitoring/jmx_prometheus_javaagent.jar=9404:/etc/monitoring/jmx-exporter.yml"
-proposal_file="/root/monitoring-jmx-proposal.txt"
-unit_snapshot="$(mktemp)"
-
-if systemctl cat e-SUS-PEC.service >"$unit_snapshot" 2>&1; then
-  service_found="true"
-else
-  service_found="false"
-  printf 'e-SUS-PEC.service was not found by systemctl.\n' >"$unit_snapshot"
-fi
-
-{
-  printf 'e-SUS PEC JMX exporter proposal\n'
-  printf 'Generated by scripts/monitoring/Install-MonitoringTargetAgent.ps1.\n\n'
-  printf 'Current e-SUS-PEC.service unit content follows for manual review.\n\n'
-  cat "$unit_snapshot"
-  printf '\nSuggested guarded change:\n'
-  printf 'Set JAVA_TOOL_OPTIONS=%s through a systemd drop-in only if the service already has an EnvironmentFile= or Environment= pattern.\n' "$javaagent_option"
-  printf 'Do not download the JMX agent jar from this script; stage /opt/monitoring/jmx_prometheus_javaagent.jar after verifying its integrity.\n'
-  printf 'Do not apply automatically until the staged jar and config have checksum metadata and a rollback health-check plan.\n'
-  printf 'Expose the JMX exporter on 127.0.0.1 or a firewall-restricted target port only.\n'
-} >"$proposal_file"
-chmod 0600 "$proposal_file"
-
-if [ "$apply_requested" != "true" ]; then
-  printf 'jmx=proposal\n'
-  exit 0
-fi
-
-printf 'jmx=refused-apply-requires-validated-staged-artifacts\n'
-exit 0
-'@.Replace("__APPLY_JMX_SERVICE_CHANGE__", $(if ($ApplyJavaServiceChange) { "true" } else { "false" }))
-
-  $jmxOutput = Invoke-ContainerBash -Script $jmxScript
-  $jmxState = Read-KeyValueOutput -Output $jmxOutput
-  if ($jmxState.Contains("jmx")) {
-    $jmxStatus = $jmxState["jmx"]
-  } else {
-    $jmxStatus = "proposal"
+$applicationExporterSummary = $null
+if ($ConfigurePostgresExporter -or $ConfigureJmxExporter) {
+  $applicationExporterScript = Join-Path $PSScriptRoot "Configure-EsusPecApplicationExporters.ps1"
+  if (-not (Test-Path -LiteralPath $applicationExporterScript -PathType Leaf)) {
+    throw "Missing application exporter provisioner: $applicationExporterScript"
   }
 
-  if ($ApplyJavaServiceChange -and $jmxStatus.StartsWith("refused")) {
-    throw "JMX apply refused with status '$jmxStatus'. Review /root/monitoring-jmx-proposal.txt on CTID $TargetCtid; no Java service change was made."
+  $applicationExporterParameters = @{
+    ConfigFile = $ConfigFile
+    TargetCtid = $TargetCtid
+    TargetName = $TargetName
+    TargetMetricsHost = "192.168.1.209"
+    MonitoringCoreHost = $MonitoringCoreHost
+    ConfigurePostgresExporter = $ConfigurePostgresExporter
+    ConfigureJmxExporter = $ConfigureJmxExporter
+    ApplyJavaServiceChange = $ApplyJavaServiceChange
   }
+
+  $applicationExporterJson = & $applicationExporterScript @applicationExporterParameters
+  $applicationExporterSummary = $applicationExporterJson | ConvertFrom-Json
 }
 
 $healthOutput = Invoke-ContainerBash -Script @'
@@ -646,8 +438,8 @@ $serviceSummary = [ordered]@{
   node_exporter = $health["node_exporter"]
   nginx = if ($nginxState.Contains("nginx")) { $nginxState["nginx"] } else { "unknown" }
   nginx_exporter = if ($nginxState.Contains("nginx_exporter")) { $nginxState["nginx_exporter"] } else { $health["nginx_exporter_health"] }
-  postgres_exporter = $postgresStatus
-  jmx = $jmxStatus
+  postgres_exporter = if ($applicationExporterSummary) { $applicationExporterSummary.postgres_exporter } else { "skipped" }
+  jmx = if ($applicationExporterSummary) { $applicationExporterSummary.jmx } else { "skipped" }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($installOutput)) {

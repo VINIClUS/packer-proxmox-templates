@@ -25,13 +25,9 @@ scrape_configs:
       - targets:
           - ESUS_PEC_LXC_TARGET_METRICS_HOST:9100
           - ESUS_PEC_LXC_TARGET_METRICS_HOST:9113
+          - ESUS_PEC_LXC_TARGET_METRICS_HOST:9187
+          - ESUS_PEC_LXC_TARGET_METRICS_HOST:9404
         labels:
           host: esus-pec-lxc-5437
           ctid: "133"
           app: esus-pec
-
-  # Optional e-SUS PEC exporters are enabled only after their guarded target
-  # configuration succeeds. Keep them out of the default scrape set so the first
-  # monitoring rollout does not report expected opt-in collectors as down.
-  # - postgres_exporter: ESUS_PEC_LXC_TARGET_METRICS_HOST:9187
-  # - jmx_exporter: ESUS_PEC_LXC_TARGET_METRICS_HOST:9404

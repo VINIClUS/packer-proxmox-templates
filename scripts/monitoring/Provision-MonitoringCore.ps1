@@ -439,7 +439,18 @@ $alloyConfig = (Get-TemplateContent -Name "alloy-core.alloy").
   Replace('ctid = "190"', ('ctid = "{0}"' -f $Ctid))
 $grafanaDatasourceConfig = Get-TemplateContent -Name "grafana-datasources.yml"
 
-Push-ContainerFile -Path "/etc/prometheus/prometheus.yml" -Content $prometheusConfig -Owner "prometheus" -Group "prometheus" -Mode "0644"
+Push-ContainerFile -Path "/etc/prometheus/prometheus.yml.candidate" -Content $prometheusConfig -Owner "root" -Group "root" -Mode "0644"
+Invoke-ContainerBash -Script @'
+set -euo pipefail
+candidate="/etc/prometheus/prometheus.yml.candidate"
+active="/etc/prometheus/prometheus.yml"
+trap 'rm -f "$candidate"' EXIT HUP INT TERM
+promtool check config "$candidate"
+install -o prometheus -g prometheus -m 0644 "$candidate" "$active"
+rm -f "$candidate"
+trap - EXIT HUP INT TERM
+'@ | Out-Null
+
 Push-ContainerFile -Path "/etc/loki/loki.yml" -Content $lokiConfig -Owner "loki" -Group "loki" -Mode "0644"
 Push-ContainerFile -Path "/etc/alloy/config.alloy" -Content $alloyConfig -Owner "root" -Group "alloy" -Mode "0640"
 Push-ContainerFile -Path "/etc/grafana/provisioning/datasources/datasources.yml" -Content $grafanaDatasourceConfig -Owner "root" -Group "grafana" -Mode "0640"
