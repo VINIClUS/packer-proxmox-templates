@@ -197,11 +197,13 @@ values.
 
 The PostgreSQL exporter is optional. If PostgreSQL exporter access is needed,
 run `scripts/monitoring/Install-MonitoringTargetAgent.ps1` with
-`-ConfigurePostgresExporter`. The provisioner reads or creates
-`ESUS_PEC_POSTGRES_EXPORTER_PASSWORD` in Infisical at
-`/test/InstallationConfig` and writes the value only to the target-side
-password file consumed by `DATA_SOURCE_PASS_FILE`. Keep only the variable name
-and storage location in tracked files; never include the value.
+`-ConfigurePostgresExporter`. The exporter uses the dedicated database user
+`prometheus_exporter`; the provisioner generates the password when needed,
+stores it in Infisical `/test/InstallationConfig` as
+`ESUS_PEC_POSTGRES_EXPORTER_PASSWORD`, and writes the secret only to the
+root-only `/etc/monitoring/postgres-exporter-password` file on CT `133`,
+consumed by `DATA_SOURCE_PASS_FILE`. Keep only the variable name and storage
+location in tracked files; never include the value.
 
 ## Rollback
 

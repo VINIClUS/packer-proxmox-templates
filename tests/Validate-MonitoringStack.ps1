@@ -417,12 +417,28 @@ foreach ($runbookTerm in @(
   "9404",
   "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
   "/test/InstallationConfig",
+  'root-only `/etc/monitoring/postgres-exporter-password` file on CT `133`',
   "restricted to the Prometheus host",
   'PostgreSQL exporter: expected `up` on `192.168.1.209:9187`',
   'JMX exporter: expected `up` on `192.168.1.209:9404`',
   "Do not commit, paste, or print"
 )) {
   Assert-ArtifactContainsTerm $runbookPath $runbookTerm "Task 7 runbook"
+}
+
+$staleExporterDocs = @(
+  "docs/monitoring/2026-06-14-centralized-monitoring.md",
+  "config/esus-pec.infisical.env.example"
+)
+foreach ($artifactPath in $staleExporterDocs) {
+  foreach ($staleTerm in @(
+    "ESUS_PEC_POSTGRES_EXPORTER_DSN",
+    "config/monitoring-targets.local.env"
+  )) {
+    if ($artifactByPath[$artifactPath].Content -match [regex]::Escape($staleTerm)) {
+      throw "Stale PostgreSQL exporter DSN documentation remains in ${artifactPath}: $staleTerm"
+    }
+  }
 }
 
 $dashboardArtifacts = $artifacts | Where-Object { $_.Path -match '^scripts/monitoring/dashboards/.*\.json$' }
