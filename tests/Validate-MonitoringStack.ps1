@@ -158,6 +158,44 @@ foreach ($term in @(
   }
 }
 
+$postgresTransactionBeginIndex = $postgresSql.IndexOf("BEGIN;")
+$postgresTransactionCommitIndex = $postgresSql.IndexOf("COMMIT;")
+$postgresOnErrorStopIndex = $postgresSql.IndexOf("\set ON_ERROR_STOP on")
+$postgresFirstSecurityDefinerFunctionIndex =
+  $postgresSql.IndexOf("CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_activity()")
+
+if ($postgresTransactionBeginIndex -lt 0) {
+  throw "PostgreSQL exporter bootstrap must start an explicit transaction with BEGIN;."
+}
+
+if ($postgresTransactionCommitIndex -lt 0) {
+  throw "PostgreSQL exporter bootstrap must finish the explicit transaction with COMMIT;."
+}
+
+if ($postgresOnErrorStopIndex -lt 0) {
+  throw "PostgreSQL exporter bootstrap must enable ON_ERROR_STOP before transaction setup."
+}
+
+if ($postgresTransactionBeginIndex -lt $postgresOnErrorStopIndex) {
+  throw "PostgreSQL exporter transaction BEGIN; must appear after \set ON_ERROR_STOP on."
+}
+
+if ($postgresTransactionBeginIndex -gt $postgresFirstSecurityDefinerFunctionIndex) {
+  throw "PostgreSQL exporter transaction BEGIN; must appear before SECURITY DEFINER function creation."
+}
+
+foreach ($grantTerm in @(
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() TO prometheus_exporter",
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_replication() TO prometheus_exporter",
+  "GRANT SELECT ON postgres_exporter.pg_stat_activity TO prometheus_exporter",
+  "GRANT SELECT ON postgres_exporter.pg_stat_replication TO prometheus_exporter"
+)) {
+  $grantIndex = $postgresSql.IndexOf($grantTerm)
+  if ($postgresTransactionCommitIndex -lt $grantIndex) {
+    throw "PostgreSQL exporter transaction COMMIT; must appear after grant: $grantTerm"
+  }
+}
+
 if ($postgresSql -match '(?is)\bCREATE\s+EXTENSION\b.*?\bpg_stat_statements\b') {
   throw "PostgreSQL exporter bootstrap must not enable pg_stat_statements implicitly."
 }

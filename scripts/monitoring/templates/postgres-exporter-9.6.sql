@@ -1,5 +1,7 @@
 \set ON_ERROR_STOP on
 
+BEGIN;
+
 CREATE OR REPLACE FUNCTION __tmp_create_monitoring_user() RETURNS void AS $$
 BEGIN
   IF NOT EXISTS (
@@ -49,3 +51,5 @@ CREATE OR REPLACE VIEW postgres_exporter.pg_stat_replication AS
   SELECT * FROM postgres_exporter.get_pg_stat_replication();
 REVOKE ALL ON postgres_exporter.pg_stat_replication FROM PUBLIC;
 GRANT SELECT ON postgres_exporter.pg_stat_replication TO prometheus_exporter;
+
+COMMIT;
