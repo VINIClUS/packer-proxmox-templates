@@ -1,0 +1,6 @@
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+excludeObjectNames:
+  - "java.lang:type=ClassLoading"
+rules:
+  - pattern: ".*"
