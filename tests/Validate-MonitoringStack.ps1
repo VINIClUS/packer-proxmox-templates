@@ -75,18 +75,16 @@ foreach ($pinnedArtifact in $pinnedApplicationExporterPatterns.GetEnumerator()) 
   }
 }
 
-$checksumValidationPatterns = @{
-  postgres_exporter = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*(?:229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0|\$postgresExporterSha256|__POSTGRES_EXPORTER_SHA256__)[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
-  jmx_exporter = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*(?:a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e|\$jmxExporterSha256|__JMX_EXPORTER_SHA256__)[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
+$downloadIntegrityPatterns = @{
+  postgres_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*https://github\.com/prometheus-community/postgres_exporter/releases/download/v0\.19\.1/postgres_exporter-0\.19\.1\.linux-amd64\.tar\.gz(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$download"\s*$'
+  postgres_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0[^\r\n|]*"\$download"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
+  jmx_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*https://github\.com/prometheus/jmx_exporter/releases/download/v1\.6\.0/jmx_prometheus_javaagent-1\.6\.0\.jar(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$jmx_tmp"\s*$'
+  jmx_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e[^\r\n|]*"\$jmx_tmp"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
 }
 
-if ($activeApplicationExporterProvisioner -notmatch '(?i)\bsha256sum\s+-c\b') {
-  throw "Application exporter provisioner must validate downloads with sha256sum -c."
-}
-
-foreach ($checksumValidation in $checksumValidationPatterns.GetEnumerator()) {
-  if ($activeApplicationExporterProvisioner -notmatch $checksumValidation.Value) {
-    throw "Application exporter checksum must feed sha256sum -c through echo or printf: $($checksumValidation.Key)"
+foreach ($downloadIntegrity in $downloadIntegrityPatterns.GetEnumerator()) {
+  if ($activeApplicationExporterProvisioner -notmatch $downloadIntegrity.Value) {
+    throw "Missing bound application exporter download integrity check: $($downloadIntegrity.Key)"
   }
 }
 
