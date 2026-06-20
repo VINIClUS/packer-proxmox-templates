@@ -461,7 +461,7 @@ foreach ($term in @(
   'jvm_threads_daemon{host="esus-pec-lxc-5437"}',
   'jvm_classes_loaded{host="esus-pec-lxc-5437"}',
   'process_cpu_seconds_total{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}',
-  'process_start_time_seconds{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}'
+  '(process_start_time_seconds{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}) * 1000'
 )) {
   $normalizedTerm = $term -replace '\s+', ''
   if ($ct133NormalizedExpressionSet -notmatch [regex]::Escape($normalizedTerm)) {
@@ -586,7 +586,7 @@ $secretPatterns = @(
   },
   @{
     Name = "secret assignment"
-    Pattern = '(?i)\b(password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*["'']?(?!\s*(<|\$\{|\$env:|\$script:|\$global:|\$local:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|REDACTED|redacted|CHANGE_ME|changeme|placeholder|example|your-|YOUR_|__|New-))[A-Za-z0-9+/_=.-]{12,}["'']?'
+    Pattern = '(?i)\b(password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*["'']?(?!\s*(<|\$\{|\$env:|\$script:|\$global:|\$local:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|REDACTED|redacted|CHANGE_ME|changeme|placeholder|example|your-|YOUR_|__|New-ExporterPassword\b|Get-OrCreatePostgresExporterPassword\b))[A-Za-z0-9+/_=.-]{12,}["'']?'
   }
 )
 
