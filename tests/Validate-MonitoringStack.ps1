@@ -16,6 +16,7 @@ $requiredArtifacts = @(
   "scripts/monitoring/templates/jmx-exporter.yml",
   "scripts/monitoring/Publish-GrafanaDashboards.ps1",
   "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1",
+  "config/esus-pec.infisical.env.example",
   "scripts/monitoring/dashboards/esus-monitoring-overview.json",
   "scripts/monitoring/dashboards/monitoring-core-ct190.json",
   "scripts/monitoring/dashboards/esus-pec-ct133.json",
@@ -393,6 +394,36 @@ Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "/
 Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_url" "Grafana Infisical env"
 Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_token" "Grafana Infisical env"
 Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "api/v1/folders" "Grafana Infisical folder creation"
+
+Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD=" "PostgreSQL exporter password placeholder"
+Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "/test/InstallationConfig" "PostgreSQL exporter Infisical path"
+Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "Never commit the value" "PostgreSQL exporter secret warning"
+
+$runbookPath = "docs/monitoring/2026-06-14-centralized-monitoring.md"
+foreach ($runbookTerm in @(
+  "Install-MonitoringTargetAgent.ps1 -ConfigurePostgresExporter -ConfigureJmxExporter -ApplyJavaServiceChange",
+  "Provision-MonitoringCore.ps1 -SkipCreate",
+  "Publish-GrafanaDashboards.ps1",
+  "prometheus-postgres-exporter",
+  "monitoring-jmx.conf",
+  "daemon-reload",
+  "e-SUS-PEC.service",
+  "The database role is not removed automatically",
+  "postgres_exporter 0.19.1",
+  "229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0",
+  "jmx_exporter 1.6.0",
+  "a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e",
+  "9187",
+  "9404",
+  "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
+  "/test/InstallationConfig",
+  "restricted to the Prometheus host",
+  'PostgreSQL exporter: expected `up` on `192.168.1.209:9187`',
+  'JMX exporter: expected `up` on `192.168.1.209:9404`',
+  "Do not commit, paste, or print"
+)) {
+  Assert-ArtifactContainsTerm $runbookPath $runbookTerm "Task 7 runbook"
+}
 
 $dashboardArtifacts = $artifacts | Where-Object { $_.Path -match '^scripts/monitoring/dashboards/.*\.json$' }
 if ($dashboardArtifacts.Count -ne 4) {

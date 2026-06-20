@@ -67,6 +67,34 @@ Prometheus, Grafana, Loki, and Alloy as systemd services. `Install-MonitoringTar
 targets CT `133 esus-pec-lxc-5437` by default and installs Alloy plus exporter
 services.
 
+Application exporters are opt-in because they create a database role and, for
+JMX, update the e-SUS PEC Java service environment. After the monitoring core
+already exists, apply the core config, install the PostgreSQL and JMX exporters,
+then publish dashboards:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Provision-MonitoringCore.ps1 -SkipCreate
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-MonitoringTargetAgent.ps1 -ConfigurePostgresExporter -ConfigureJmxExporter -ApplyJavaServiceChange
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Publish-GrafanaDashboards.ps1
+```
+
+`-ConfigurePostgresExporter` installs `prometheus-postgres-exporter` on CT
+`133` and exposes metrics on TCP `9187`. `-ConfigureJmxExporter` stages the JMX
+agent and exposes JVM metrics on TCP `9404`. `-ApplyJavaServiceChange` writes
+the managed `monitoring-jmx.conf` drop-in and restarts `e-SUS-PEC.service`; omit
+that flag when only staging/reviewing JMX artifacts.
+
+The target-side firewall must remain restricted to the Prometheus host:
+loopback is accepted, the monitoring core host is accepted, and other traffic to
+TCP `9187`/`9404` is rejected or dropped. Do not expose these ports broadly.
+
+Pinned application exporter artifacts:
+
+| Component | Version | SHA256 |
+|---|---:|---|
+| `postgres_exporter` | `postgres_exporter 0.19.1` | `229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0` |
+| `jmx_exporter` | `jmx_exporter 1.6.0` | `a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e` |
+
 ## Grafana Dashboards
 
 Managed dashboards live in `scripts/monitoring/dashboards` and are published
@@ -131,6 +159,25 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Provi
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-MonitoringTargetAgent.ps1
 ```
 
+Application exporter validation after the guarded install:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Provision-MonitoringCore.ps1 -SkipCreate
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-MonitoringTargetAgent.ps1 -ConfigurePostgresExporter -ConfigureJmxExporter -ApplyJavaServiceChange
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Publish-GrafanaDashboards.ps1
+```
+
+Expected live checks:
+
+- PostgreSQL exporter: expected `up` on `192.168.1.209:9187`, `pg_up` present,
+  and database panels populated from `pg_stat_database` metrics.
+- JMX exporter: expected `up` on `192.168.1.209:9404`, JVM memory, garbage
+  collection, and thread metrics present.
+- Prometheus target access remains restricted to the Prometheus host, with no
+  broad firewall rule for TCP `9187` or TCP `9404`.
+- Grafana dashboards publish without printing `grafana_token` or
+  `ESUS_PEC_POSTGRES_EXPORTER_PASSWORD`.
+
 Expected static validation output:
 
 ```text
@@ -150,12 +197,11 @@ values.
 
 The PostgreSQL exporter is optional. If PostgreSQL exporter access is needed,
 run `scripts/monitoring/Install-MonitoringTargetAgent.ps1` with
-`-ConfigurePostgresExporter` and provide `ESUS_PEC_POSTGRES_EXPORTER_DSN`
-through the ignored local file `config/monitoring-targets.local.env` or another
-approved secret channel. The local env file or environment variable only
-supplies the DSN; it is not applied unless the install script is run with
-`-ConfigurePostgresExporter`. Keep only the variable name and storage location
-in tracked files; never include the value.
+`-ConfigurePostgresExporter`. The provisioner reads or creates
+`ESUS_PEC_POSTGRES_EXPORTER_PASSWORD` in Infisical at
+`/test/InstallationConfig` and writes the value only to the target-side
+password file consumed by `DATA_SOURCE_PASS_FILE`. Keep only the variable name
+and storage location in tracked files; never include the value.
 
 ## Rollback
 
@@ -202,6 +248,21 @@ backup for later rollback.
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl stop prometheus-nginx-exporter 2>/dev/null || true; systemctl disable prometheus-nginx-exporter 2>/dev/null || true; rm -f /etc/nginx/conf.d/monitoring-stub-status.conf'"
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'nginx -t && systemctl reload nginx'"
 ```
+
+Rollback the application exporters separately. Stop and disable the PostgreSQL
+exporter and its firewall unit, remove the JMX service drop-in, reload systemd,
+and restart e-SUS PEC:
+
+```powershell
+rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl disable --now prometheus-postgres-exporter prometheus-postgres-exporter-firewall 2>/dev/null || true'"
+rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'rm -f /etc/systemd/system/e-SUS-PEC.service.d/monitoring-jmx.conf; systemctl daemon-reload; systemctl restart e-SUS-PEC.service'"
+rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl is-active prometheus-postgres-exporter 2>/dev/null || true; systemctl is-active e-SUS-PEC.service'"
+```
+
+The database role is not removed automatically. If the `prometheus_exporter`
+role should be removed later, first confirm that no dashboard, Prometheus job,
+or external operator still depends on it, then perform a separate reviewed DB
+cleanup.
 
 Review the JMX proposal before making or rolling back Java changes. The current
 agent install writes review material and does not apply a Java service change by
