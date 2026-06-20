@@ -444,10 +444,15 @@ Invoke-ContainerBash -Script @'
 set -euo pipefail
 candidate="/etc/prometheus/prometheus.yml.candidate"
 active="/etc/prometheus/prometheus.yml"
-trap 'rm -f "$candidate"' EXIT HUP INT TERM
+next_config="/etc/prometheus/prometheus.yml.next.$$"
+cleanup_prometheus_candidate() {
+  rm -f "$candidate" "$next_config"
+}
+trap cleanup_prometheus_candidate EXIT HUP INT TERM
 promtool check config "$candidate"
-install -o prometheus -g prometheus -m 0644 "$candidate" "$active"
-rm -f "$candidate"
+install -o prometheus -g prometheus -m 0644 "$candidate" "$next_config"
+mv -f "$next_config" "$active"
+cleanup_prometheus_candidate
 trap - EXIT HUP INT TERM
 '@ | Out-Null
 

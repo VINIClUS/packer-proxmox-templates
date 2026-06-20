@@ -53,9 +53,19 @@ foreach ($artifact in $artifacts) {
 
 $applicationExporterProvisioner =
   $artifactByPath["scripts/monitoring/Configure-EsusPecApplicationExporters.ps1"].Content
+$targetAgentProvisioner =
+  $artifactByPath["scripts/monitoring/Install-MonitoringTargetAgent.ps1"].Content
+$coreProvisioner =
+  $artifactByPath["scripts/monitoring/Provision-MonitoringCore.ps1"].Content
 
 $activeApplicationExporterProvisioner = (
   $applicationExporterProvisioner -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' } |
+    ForEach-Object { $_ -replace '\s+#.*$', '' }
+) -join "`n"
+
+$activeTargetAgentProvisioner = (
+  $targetAgentProvisioner -split "`r?`n" |
     Where-Object { $_ -notmatch '^\s*#' } |
     ForEach-Object { $_ -replace '\s+#.*$', '' }
 ) -join "`n"
@@ -243,6 +253,75 @@ foreach ($grantTerm in @(
 
 if ($postgresSql -match '(?is)\bCREATE\s+EXTENSION\b.*?\bpg_stat_statements\b') {
   throw "PostgreSQL exporter bootstrap must not enable pg_stat_statements implicitly."
+}
+
+$healthSummaryIndex =
+  $activeTargetAgentProvisioner.IndexOf('$health = Read-KeyValueOutput -Output $healthOutput')
+$applicationExporterDelegationIndex =
+  $activeTargetAgentProvisioner.IndexOf('$applicationExporterScript = Join-Path $PSScriptRoot "Configure-EsusPecApplicationExporters.ps1"')
+$serviceSummaryIndex =
+  $activeTargetAgentProvisioner.IndexOf('$serviceSummary = [ordered]@{')
+
+if ($healthSummaryIndex -lt 0) {
+  throw "Target agent must read base/Nginx health before building service summary."
+}
+
+if ($applicationExporterDelegationIndex -lt 0) {
+  throw "Target agent must delegate PostgreSQL/JMX exporter setup to Configure-EsusPecApplicationExporters.ps1."
+}
+
+if ($serviceSummaryIndex -lt 0) {
+  throw "Target agent must build a JSON service summary."
+}
+
+if ($applicationExporterDelegationIndex -lt $healthSummaryIndex -or
+    $applicationExporterDelegationIndex -gt $serviceSummaryIndex) {
+  throw "Target agent must delegate application exporters after base/Nginx health checks and before service summary construction."
+}
+
+foreach ($targetSummaryTerm in @(
+  'postgres_exporter = if ($applicationExporterSummary) { $applicationExporterSummary.postgres_exporter } else { "skipped" }',
+  'jmx = if ($applicationExporterSummary) { $applicationExporterSummary.jmx } else { "skipped" }'
+)) {
+  if ($activeTargetAgentProvisioner -notmatch [regex]::Escape($targetSummaryTerm)) {
+    throw "Target agent summary must surface application exporter result: $targetSummaryTerm"
+  }
+}
+
+$prometheusCandidateIndex =
+  $coreProvisioner.IndexOf('promtool check config "$candidate"')
+$prometheusNextIndex =
+  $coreProvisioner.IndexOf('/etc/prometheus/prometheus.yml.next.$$')
+$prometheusMoveIndex =
+  $coreProvisioner.IndexOf('mv -f "$next_config" "$active"')
+
+if ($prometheusCandidateIndex -lt 0) {
+  throw "Monitoring core must validate the Prometheus candidate with promtool before promotion."
+}
+
+if ($prometheusNextIndex -lt 0) {
+  throw "Monitoring core must stage validated Prometheus config in a same-directory .next tempfile."
+}
+
+if ($prometheusMoveIndex -lt 0) {
+  throw "Monitoring core must atomically promote Prometheus config with mv -f."
+}
+
+if ($prometheusMoveIndex -lt $prometheusCandidateIndex) {
+  throw "Monitoring core must run promtool before atomically promoting Prometheus config."
+}
+
+if ($coreProvisioner -match 'install\s+-o\s+prometheus\s+-g\s+prometheus\s+-m\s+0644\s+"\$candidate"\s+"\$active"') {
+  throw "Monitoring core must not install the candidate directly over the active Prometheus config."
+}
+
+foreach ($cleanupTerm in @(
+  'rm -f "$candidate" "$next_config"',
+  'trap cleanup_prometheus_candidate EXIT HUP INT TERM'
+)) {
+  if ($coreProvisioner -notmatch [regex]::Escape($cleanupTerm)) {
+    throw "Monitoring core must clean up candidate and .next Prometheus temp files: $cleanupTerm"
+  }
 }
 
 function Assert-ArtifactContainsTerm {

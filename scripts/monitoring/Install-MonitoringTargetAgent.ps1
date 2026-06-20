@@ -392,6 +392,21 @@ printf 'nginx_exporter=active\n'
 '@
 $nginxState = Read-KeyValueOutput -Output $nginxOutput
 
+$healthOutput = Invoke-ContainerBash -Script @'
+set -euo pipefail
+systemctl is-active alloy prometheus-node-exporter >/dev/null
+curl -fsS http://127.0.0.1:9100/metrics >/dev/null
+printf 'alloy=%s\n' "$(systemctl is-active alloy)"
+printf 'node_exporter=%s\n' "$(systemctl is-active prometheus-node-exporter)"
+if systemctl is-active prometheus-nginx-exporter >/dev/null 2>&1; then
+  curl -fsS http://127.0.0.1:9113/metrics >/dev/null
+  printf 'nginx_exporter_health=ready\n'
+else
+  printf 'nginx_exporter_health=skipped\n'
+fi
+'@
+$health = Read-KeyValueOutput -Output $healthOutput
+
 $applicationExporterSummary = $null
 if ($ConfigurePostgresExporter -or $ConfigureJmxExporter) {
   $applicationExporterScript = Join-Path $PSScriptRoot "Configure-EsusPecApplicationExporters.ps1"
@@ -413,21 +428,6 @@ if ($ConfigurePostgresExporter -or $ConfigureJmxExporter) {
   $applicationExporterJson = & $applicationExporterScript @applicationExporterParameters
   $applicationExporterSummary = $applicationExporterJson | ConvertFrom-Json
 }
-
-$healthOutput = Invoke-ContainerBash -Script @'
-set -euo pipefail
-systemctl is-active alloy prometheus-node-exporter >/dev/null
-curl -fsS http://127.0.0.1:9100/metrics >/dev/null
-printf 'alloy=%s\n' "$(systemctl is-active alloy)"
-printf 'node_exporter=%s\n' "$(systemctl is-active prometheus-node-exporter)"
-if systemctl is-active prometheus-nginx-exporter >/dev/null 2>&1; then
-  curl -fsS http://127.0.0.1:9113/metrics >/dev/null
-  printf 'nginx_exporter_health=ready\n'
-else
-  printf 'nginx_exporter_health=skipped\n'
-fi
-'@
-$health = Read-KeyValueOutput -Output $healthOutput
 
 $serviceSummary = [ordered]@{
   target = [ordered]@{
