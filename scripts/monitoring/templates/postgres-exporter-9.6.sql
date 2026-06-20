@@ -29,6 +29,7 @@ RETURNS SETOF pg_catalog.pg_stat_activity AS $$
   SELECT * FROM pg_catalog.pg_stat_activity;
 $$ LANGUAGE sql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp;
+REVOKE EXECUTE ON FUNCTION get_pg_stat_activity() FROM PUBLIC;
 
 CREATE OR REPLACE VIEW postgres_exporter.pg_stat_activity AS
   SELECT * FROM get_pg_stat_activity();
@@ -40,6 +41,7 @@ RETURNS SETOF pg_catalog.pg_stat_replication AS $$
   SELECT * FROM pg_catalog.pg_stat_replication;
 $$ LANGUAGE sql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp;
+REVOKE EXECUTE ON FUNCTION get_pg_stat_replication() FROM PUBLIC;
 
 CREATE OR REPLACE VIEW postgres_exporter.pg_stat_replication AS
   SELECT * FROM get_pg_stat_replication();

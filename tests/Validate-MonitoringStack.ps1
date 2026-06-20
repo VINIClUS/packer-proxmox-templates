@@ -144,6 +144,8 @@ foreach ($term in @(
   "SECURITY DEFINER",
   "get_pg_stat_activity",
   "get_pg_stat_replication",
+  "REVOKE EXECUTE ON FUNCTION get_pg_stat_activity() FROM PUBLIC",
+  "REVOKE EXECUTE ON FUNCTION get_pg_stat_replication() FROM PUBLIC",
   "GRANT SELECT ON postgres_exporter.pg_stat_activity",
   "GRANT SELECT ON postgres_exporter.pg_stat_replication"
 )) {
