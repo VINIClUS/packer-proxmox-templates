@@ -76,8 +76,8 @@ foreach ($pinnedArtifact in $pinnedApplicationExporterPatterns.GetEnumerator()) 
 }
 
 $checksumValidationPatterns = @{
-  postgres_exporter = '(?is)(?:\$postgresExporterSha256|__POSTGRES_EXPORTER_SHA256__).{0,500}\bsha256sum\s+-c\b|\bsha256sum\s+-c\b.{0,500}(?:\$postgresExporterSha256|__POSTGRES_EXPORTER_SHA256__)'
-  jmx_exporter = '(?is)(?:\$jmxExporterSha256|__JMX_EXPORTER_SHA256__).{0,500}\bsha256sum\s+-c\b|\bsha256sum\s+-c\b.{0,500}(?:\$jmxExporterSha256|__JMX_EXPORTER_SHA256__)'
+  postgres_exporter = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*(?:229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0|\$postgresExporterSha256|__POSTGRES_EXPORTER_SHA256__)[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
+  jmx_exporter = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*(?:a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e|\$jmxExporterSha256|__JMX_EXPORTER_SHA256__)[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
 }
 
 if ($activeApplicationExporterProvisioner -notmatch '(?i)\bsha256sum\s+-c\b') {
@@ -86,7 +86,7 @@ if ($activeApplicationExporterProvisioner -notmatch '(?i)\bsha256sum\s+-c\b') {
 
 foreach ($checksumValidation in $checksumValidationPatterns.GetEnumerator()) {
   if ($activeApplicationExporterProvisioner -notmatch $checksumValidation.Value) {
-    throw "Application exporter checksum must be used near sha256sum -c: $($checksumValidation.Key)"
+    throw "Application exporter checksum must feed sha256sum -c through echo or printf: $($checksumValidation.Key)"
   }
 }
 
@@ -118,7 +118,10 @@ foreach ($requiredFunctionUse in @("wait_http_ready", "rollback_jmx")) {
       Where-Object { $_ -notmatch $functionDeclarationPattern }
   ) -join "`n"
 
-  if ($nonDeclarationLines -notmatch "(?i)\b$escapedFunctionName\b") {
+  $functionCallPattern =
+    "(?im)^\s*(?![^\r\n]*=)(?![^\r\n]*\bfunction\b)(?![^\r\n]*\(\)\s*\{\s*$)(?:if\s+!?\s*|!\s*)?$escapedFunctionName(?:\s+[^\r\n]+)?\s*$"
+
+  if ($nonDeclarationLines -notmatch $functionCallPattern) {
     throw "Application exporter provisioner must call function: $requiredFunctionUse"
   }
 }
