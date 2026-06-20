@@ -54,33 +54,61 @@ foreach ($artifact in $artifacts) {
 $applicationExporterProvisioner =
   $artifactByPath["scripts/monitoring/Configure-EsusPecApplicationExporters.ps1"].Content
 
+$activeApplicationExporterProvisioner = (
+  $applicationExporterProvisioner -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' } |
+    ForEach-Object { $_ -replace '\s+#.*$', '' }
+) -join "`n"
+
+$pinnedApplicationExporterPatterns = @{
+  postgres_exporter_version = '(?im)^\s*\$postgresExporterVersion\s*=\s*["'']0\.19\.1["'']\s*$'
+  postgres_exporter_checksum = '(?im)^\s*\$postgresExporterSha256\s*=\s*["'']229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0["'']\s*$'
+  postgres_exporter_url = '(?im)^\s*\$postgresExporterUrl\s*=\s*["'']https://github\.com/prometheus-community/postgres_exporter/releases/download/v0\.19\.1/postgres_exporter-0\.19\.1\.linux-amd64\.tar\.gz["'']\s*$'
+  jmx_exporter_version = '(?im)^\s*\$jmxExporterVersion\s*=\s*["'']1\.6\.0["'']\s*$'
+  jmx_exporter_checksum = '(?im)^\s*\$jmxExporterSha256\s*=\s*["'']a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e["'']\s*$'
+  jmx_exporter_url = '(?im)^\s*\$jmxExporterUrl\s*=\s*["'']https://github\.com/prometheus/jmx_exporter/releases/download/v1\.6\.0/jmx_prometheus_javaagent-1\.6\.0\.jar["'']\s*$'
+}
+
+foreach ($pinnedArtifact in $pinnedApplicationExporterPatterns.GetEnumerator()) {
+  if ($activeApplicationExporterProvisioner -notmatch $pinnedArtifact.Value) {
+    throw "Missing pinned application exporter artifact relation: $($pinnedArtifact.Key)"
+  }
+}
+
 foreach ($term in @(
-  "0.19.1",
-  "229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0",
-  "1.6.0",
-  "a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e",
   "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
   "/test/InstallationConfig",
   "prometheus_exporter",
   "127.0.0.1:5433",
   "DATA_SOURCE_PASS_FILE",
   "monitoring-jmx.conf",
-  "JAVA_TOOL_OPTIONS",
-  "wait_http_ready",
-  "rollback_jmx"
+  "JAVA_TOOL_OPTIONS"
 )) {
-  if ($applicationExporterProvisioner -notmatch [regex]::Escape($term)) {
+  if ($activeApplicationExporterProvisioner -notmatch [regex]::Escape($term)) {
     throw "Missing application exporter provisioner term: $term"
   }
 }
 
-foreach ($forbiddenTerm in @(
-  "SUPERUSER",
-  "ALTER SYSTEM",
-  "listen_addresses = '*'"
-)) {
-  if ($applicationExporterProvisioner -match [regex]::Escape($forbiddenTerm)) {
-    throw "Application exporter provisioner contains forbidden term: $forbiddenTerm"
+foreach ($requiredFunctionUse in @("wait_http_ready", "rollback_jmx")) {
+  $occurrenceCount = [regex]::Matches(
+    $activeApplicationExporterProvisioner,
+    "\b$([regex]::Escape($requiredFunctionUse))\b",
+    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+  ).Count
+  if ($occurrenceCount -lt 2) {
+    throw "Application exporter provisioner must declare and call function: $requiredFunctionUse"
+  }
+}
+
+$forbiddenApplicationExporterPatterns = @{
+  SUPERUSER = '(?i)(?<!NO)\bSUPERUSER\b'
+  "ALTER SYSTEM" = '(?i)\bALTER\s+SYSTEM\b'
+  "listen_addresses = '*'" = "(?i)\blisten_addresses\s*=\s*['""]\*['""]"
+}
+
+foreach ($forbiddenTerm in $forbiddenApplicationExporterPatterns.GetEnumerator()) {
+  if ($activeApplicationExporterProvisioner -match $forbiddenTerm.Value) {
+    throw "Application exporter provisioner contains forbidden term: $($forbiddenTerm.Key)"
   }
 }
 
@@ -100,7 +128,7 @@ foreach ($term in @(
   }
 }
 
-if ($postgresSql -match "CREATE EXTENSION.*pg_stat_statements") {
+if ($postgresSql -match '(?is)\bCREATE\s+EXTENSION\b.*?\bpg_stat_statements\b') {
   throw "PostgreSQL exporter bootstrap must not enable pg_stat_statements implicitly."
 }
 
@@ -200,31 +228,45 @@ foreach ($dashboardArtifact in $dashboardArtifacts) {
 }
 
 $ct133Dashboard = $artifactByPath["scripts/monitoring/dashboards/esus-pec-ct133.json"].Content
+$ct133DashboardObject = $ct133Dashboard | ConvertFrom-Json
+$ct133Expressions = @(
+  foreach ($panel in $ct133DashboardObject.panels) {
+    if ($panel.PSObject.Properties.Name -notcontains "targets") {
+      continue
+    }
+    foreach ($target in $panel.targets) {
+      if ($target.PSObject.Properties.Name -contains "expr") {
+        [string]$target.expr
+      }
+    }
+  }
+) -join "`n"
+
 foreach ($term in @(
-  'instance=\"192.168.1.209:9187\"',
-  'instance=\"192.168.1.209:9404\"',
+  'instance="192.168.1.209:9187"',
+  'instance="192.168.1.209:9404"',
   "pg_up",
   "pg_stat_database",
   "jvm_memory",
   "jvm_gc",
   "jvm_threads"
 )) {
-  if ($ct133Dashboard -notmatch [regex]::Escape($term)) {
+  if ($ct133Expressions -notmatch [regex]::Escape($term)) {
     throw "Missing CT 133 application exporter dashboard term: $term"
   }
 }
 
 foreach ($obsoleteCt133Job in @("esus-pec-lxc-5437-node", "esus-pec-lxc-5437-nginx")) {
-  if ($ct133Dashboard -match [regex]::Escape($obsoleteCt133Job)) {
+  if ($ct133Expressions -match [regex]::Escape($obsoleteCt133Job)) {
     throw "CT 133 dashboard references obsolete Prometheus job label: $obsoleteCt133Job"
   }
 }
 foreach ($requiredCt133Selector in @(
-  'host=\"esus-pec-lxc-5437\"',
-  'instance=\"192.168.1.209:9100\"',
-  'instance=\"192.168.1.209:9113\"'
+  'host="esus-pec-lxc-5437"',
+  'instance="192.168.1.209:9100"',
+  'instance="192.168.1.209:9113"'
 )) {
-  if ($ct133Dashboard -notmatch [regex]::Escape($requiredCt133Selector)) {
+  if ($ct133Expressions -notmatch [regex]::Escape($requiredCt133Selector)) {
     throw "CT 133 dashboard must use observed Prometheus selector: $requiredCt133Selector"
   }
 }
@@ -331,11 +373,17 @@ foreach ($artifact in $secretScanArtifacts) {
 }
 
 $prometheusTemplate = Get-Content -LiteralPath (Get-ArtifactPath "scripts/monitoring/templates/prometheus.yml") -Raw
+$activePrometheusTemplate = (
+  $prometheusTemplate -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' }
+) -join "`n"
+
 foreach ($term in @(
   "ESUS_PEC_LXC_TARGET_METRICS_HOST:9187",
   "ESUS_PEC_LXC_TARGET_METRICS_HOST:9404"
 )) {
-  if ($prometheusTemplate -notmatch [regex]::Escape($term)) {
+  $activeTargetPattern = "(?m)^\s*-\s*$([regex]::Escape($term))\s*$"
+  if ($activePrometheusTemplate -notmatch $activeTargetPattern) {
     throw "Missing application exporter Prometheus target: $term"
   }
 }
