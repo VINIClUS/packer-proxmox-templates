@@ -439,8 +439,29 @@ $ct133NormalizedExpressions = @(
 $ct133NormalizedExpressionSet = $ct133NormalizedExpressions -join "`n"
 
 foreach ($term in @(
-  'instance="192.168.1.209:9187"',
-  'instance="192.168.1.209:9404"'
+  'up{host="esus-pec-lxc-5437",instance="192.168.1.209:9187"}',
+  'up{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}',
+  'pg_up{host="esus-pec-lxc-5437"}',
+  'sum by (datname) (pg_stat_database_numbackends{host="esus-pec-lxc-5437"})',
+  'pg_database_size_bytes{host="esus-pec-lxc-5437"}',
+  'rate(pg_stat_database_xact_commit{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_xact_rollback{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_deadlocks{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_tup_inserted{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_tup_updated{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_tup_deleted{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_blks_hit{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_blks_read{host="esus-pec-lxc-5437"}[5m])',
+  'jvm_memory_bytes_used{host="esus-pec-lxc-5437",area="heap"}',
+  'jvm_memory_bytes_max{host="esus-pec-lxc-5437",area="heap"}',
+  'jvm_memory_bytes_used{host="esus-pec-lxc-5437",area="nonheap"}',
+  'rate(jvm_gc_collection_seconds_sum{host="esus-pec-lxc-5437"}[5m])',
+  'rate(jvm_gc_collection_seconds_count{host="esus-pec-lxc-5437"}[5m])',
+  'jvm_threads_current{host="esus-pec-lxc-5437"}',
+  'jvm_threads_daemon{host="esus-pec-lxc-5437"}',
+  'jvm_classes_loaded{host="esus-pec-lxc-5437"}',
+  'process_cpu_seconds_total{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}',
+  'process_start_time_seconds{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}'
 )) {
   $normalizedTerm = $term -replace '\s+', ''
   if ($ct133NormalizedExpressionSet -notmatch [regex]::Escape($normalizedTerm)) {
@@ -565,7 +586,7 @@ $secretPatterns = @(
   },
   @{
     Name = "secret assignment"
-    Pattern = '(?i)\b(password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*["'']?(?!\s*(<|\$\{|\$env:|\$script:|\$global:|\$local:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|REDACTED|redacted|CHANGE_ME|changeme|placeholder|example|your-|YOUR_|__))[A-Za-z0-9+/_=.-]{12,}["'']?'
+    Pattern = '(?i)\b(password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*["'']?(?!\s*(<|\$\{|\$env:|\$script:|\$global:|\$local:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|REDACTED|redacted|CHANGE_ME|changeme|placeholder|example|your-|YOUR_|__|New-))[A-Za-z0-9+/_=.-]{12,}["'']?'
   }
 )
 
