@@ -1,0 +1,703 @@
+param(
+  [string]$ConfigFile = "config/Proxmox.pkrvars.hcl",
+  [int]$TargetCtid = 133,
+  [string]$TargetName = "esus-pec-lxc-5437",
+  [string]$TargetMetricsHost = "192.168.1.209",
+  [string]$MonitoringCoreHost = "192.168.1.190",
+  [string]$InfisicalUrl = "http://192.168.1.226:8080",
+  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
+  [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
+  [string]$InfisicalEnvironment = "dev",
+  [string]$RuntimeSecretPath = "/test",
+  [string]$InstallationSecretPath = "/test/InstallationConfig",
+  [switch]$ConfigurePostgresExporter,
+  [switch]$ConfigureJmxExporter,
+  [switch]$ApplyJavaServiceChange
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$postgresExporterVersion = "0.19.1"
+$postgresExporterSha256 = "229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0"
+$postgresExporterUrl = "https://github.com/prometheus-community/postgres_exporter/releases/download/v0.19.1/postgres_exporter-0.19.1.linux-amd64.tar.gz"
+
+$jmxExporterVersion = "1.6.0"
+$jmxExporterSha256 = "a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e"
+$jmxExporterUrl = "https://github.com/prometheus/jmx_exporter/releases/download/v1.6.0/jmx_prometheus_javaagent-1.6.0.jar"
+
+function Get-HclValue {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Text,
+    [string]$Default = $null
+  )
+
+  $line = $Text -split "`n" | Where-Object {
+    $_ -match ("^\s*" + [regex]::Escape($Name) + "\s*=")
+  } | Select-Object -First 1
+
+  if (-not $line) { return $Default }
+  return (($line -split "=", 2)[1]).Trim().Trim('"')
+}
+
+function ConvertTo-ShellSingleQuoted {
+  param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value)
+  return "'" + ($Value -replace "'", "'\''") + "'"
+}
+
+function Invoke-ProxmoxSsh {
+  param([Parameter(Mandatory = $true)][string]$Command)
+
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget $Command 2>&1 |
+      ForEach-Object { $_.ToString() }
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($exitCode -ne 0) {
+    $output
+    throw "Remote Proxmox command failed with exit code $exitCode."
+  }
+  return ($output -join "`n")
+}
+
+function Invoke-ProxmoxBash {
+  param([Parameter(Mandatory = $true)][string]$Script)
+
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
+  Invoke-ProxmoxSsh -Command "echo $encoded | base64 -d | bash -se"
+}
+
+function Invoke-ContainerBash {
+  param([Parameter(Mandatory = $true)][string]$Script)
+
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
+  Invoke-ProxmoxSsh -Command "pct exec $TargetCtid -- bash -lc 'echo $encoded | base64 -d | bash -se'"
+}
+
+function Push-ContainerFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Content,
+    [string]$Owner = "root",
+    [string]$Group = "root",
+    [string]$Mode = "0644"
+  )
+
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Content))
+  $remotePath = ConvertTo-ShellSingleQuoted -Value $Path
+  $remoteDir = ConvertTo-ShellSingleQuoted -Value (Split-Path -Parent $Path).Replace("\", "/")
+  $remoteOwner = ConvertTo-ShellSingleQuoted -Value "${Owner}:${Group}"
+  $remoteMode = ConvertTo-ShellSingleQuoted -Value $Mode
+
+  $pushScript = @"
+set -euo pipefail
+umask 077
+work_dir="`$(mktemp -d /root/codex-monitoring-target-push.XXXXXX)"
+trap 'rm -rf "`$work_dir"' EXIT HUP INT TERM
+payload_b64="`$work_dir/payload.b64"
+payload_file="`$work_dir/payload"
+cat > "`$payload_b64" <<'PUSH_PAYLOAD'
+$encoded
+PUSH_PAYLOAD
+base64 -d "`$payload_b64" > "`$payload_file"
+pct exec $TargetCtid -- mkdir -p $remoteDir
+pct push $TargetCtid "`$payload_file" $remotePath --perms $remoteMode >/dev/null
+pct exec $TargetCtid -- chown $remoteOwner $remotePath
+"@
+  Invoke-ProxmoxBash -Script $pushScript | Out-Null
+}
+
+function Protect-LocalTemporarySecretFile {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($rule in @($acl.Access)) {
+      [void]$acl.RemoveAccessRuleAll($rule)
+    }
+
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $system = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-18"
+    $administrators = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-32-544"
+    foreach ($identity in @($currentUser, $system, $administrators)) {
+      $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @(
+        $identity,
+        [System.Security.AccessControl.FileSystemRights]::FullControl,
+        [System.Security.AccessControl.AccessControlType]::Allow
+      )
+      $acl.AddAccessRule($accessRule)
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+    return
+  }
+
+  & chmod 600 -- $Path
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to restrict local temporary secret file permissions."
+  }
+}
+
+function Push-ContainerSecretFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Content,
+    [string]$Owner = "root",
+    [string]$Group = "root",
+    [string]$Mode = "0600"
+  )
+
+  $localTemp = [System.IO.Path]::GetTempFileName()
+  $remoteTemp = $null
+  try {
+    Protect-LocalTemporarySecretFile -Path $localTemp
+    [System.IO.File]::WriteAllText($localTemp, $Content, [System.Text.UTF8Encoding]::new($false))
+
+    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/codex-monitoring-secret.XXXXXXXXXX").Trim()
+    $scpTarget = "{0}:{1}" -f $script:SshTarget, $remoteTemp
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      $scpOutput = & scp -i $script:SshKey -P $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $localTemp $scpTarget 2>&1 |
+        ForEach-Object { $_.ToString() }
+      $scpExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($scpExitCode -ne 0) {
+      $scpOutput
+      throw "SCP transfer for container secret file failed with exit code $scpExitCode."
+    }
+
+    $remotePath = ConvertTo-ShellSingleQuoted -Value $Path
+    $remoteDir = ConvertTo-ShellSingleQuoted -Value (Split-Path -Parent $Path).Replace("\", "/")
+    $remoteOwner = ConvertTo-ShellSingleQuoted -Value "${Owner}:${Group}"
+    $remoteMode = ConvertTo-ShellSingleQuoted -Value $Mode
+    $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+
+    $pushScript = @"
+set -euo pipefail
+chmod 0600 $remoteTempQuoted
+pct exec $TargetCtid -- mkdir -p $remoteDir
+pct push $TargetCtid $remoteTempQuoted $remotePath --perms $remoteMode >/dev/null
+pct exec $TargetCtid -- chown $remoteOwner $remotePath
+"@
+    Invoke-ProxmoxBash -Script $pushScript | Out-Null
+  } finally {
+    if (-not [string]::IsNullOrWhiteSpace($remoteTemp)) {
+      $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+      try {
+        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" | Out-Null
+      } catch {
+        Write-Warning "Failed to remove temporary Proxmox host secret file; remove it manually if present."
+      }
+    }
+
+    if (Test-Path -LiteralPath $localTemp -PathType Leaf) {
+      Remove-Item -LiteralPath $localTemp -Force
+    }
+  }
+}
+
+function Get-TemplateContent {
+  param([Parameter(Mandatory = $true)][string]$Name)
+
+  $path = Join-Path $PSScriptRoot "templates/$Name"
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    throw "Missing monitoring template: $path"
+  }
+  Get-Content -LiteralPath $path -Raw
+}
+
+function Read-KeyValueOutput {
+  param([Parameter(Mandatory = $true)][string]$Output)
+
+  $result = [ordered]@{}
+  foreach ($line in ($Output -split "`n")) {
+    if ($line -match "^(?<name>[^=]+)=(?<value>.*)$") {
+      $result[$matches.name.Trim()] = $matches.value.Trim()
+    }
+  }
+  return $result
+}
+
+function Get-EnvFileValues {
+  param([string]$Path)
+
+  $values = @{}
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return $values
+  }
+
+  foreach ($line in Get-Content -LiteralPath $Path) {
+    $trimmed = $line.Trim()
+    if ($trimmed -eq "" -or $trimmed.StartsWith("#") -or $trimmed -notmatch "=") {
+      continue
+    }
+
+    $parts = $trimmed -split "=", 2
+    $values[$parts[0].Trim()] = $parts[1].Trim().Trim('"').Trim("'")
+  }
+
+  return $values
+}
+
+function Get-InfisicalToken {
+  $envValues = Get-EnvFileValues -Path ".env"
+
+  foreach ($candidate in @("infisical_secret_key", "INFISICAL_TOKEN")) {
+    $environmentValue = [Environment]::GetEnvironmentVariable($candidate)
+    if (-not [string]::IsNullOrWhiteSpace($environmentValue)) {
+      return $environmentValue.Trim()
+    }
+    if ($envValues.ContainsKey($candidate) -and -not [string]::IsNullOrWhiteSpace([string]$envValues[$candidate])) {
+      return [string]$envValues[$candidate]
+    }
+  }
+
+  throw "Infisical token not found. Set infisical_secret_key in .env or INFISICAL_TOKEN."
+}
+
+function Get-InfisicalSecrets {
+  param(
+    [string]$SecretPath,
+    [hashtable]$Headers
+  )
+
+  $uri = "$InfisicalUrl/api/v3/secrets/raw?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&secretPath=$([uri]::EscapeDataString($SecretPath))"
+  try {
+    $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers -TimeoutSec 30
+  } catch {
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
+      return @{}
+    }
+    throw
+  }
+
+  $result = @{}
+  foreach ($item in @($response.secrets)) {
+    $result[[string]$item.secretKey] = [string]$item.secretValue
+  }
+  return $result
+}
+
+function Ensure-InfisicalFolderPath {
+  param(
+    [string]$SecretPath,
+    [hashtable]$Headers
+  )
+
+  $segments = @($SecretPath.Trim("/") -split "/" | Where-Object { $_ -ne "" })
+  if ($segments.Count -eq 0) {
+    return
+  }
+
+  $parent = "/"
+  foreach ($segment in $segments) {
+    $listUri = "$InfisicalUrl/api/v1/folders?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&path=$([uri]::EscapeDataString($parent))"
+    $folders = Invoke-RestMethod -Method Get -Uri $listUri -Headers $Headers -TimeoutSec 30
+
+    if (@($folders.folders | Where-Object { $_.name -eq $segment }).Count -eq 0) {
+      $body = @{
+        workspaceId = $InfisicalWorkspaceId
+        environment = $InfisicalEnvironment
+        name = $segment
+        path = $parent
+      } | ConvertTo-Json -Compress
+
+      try {
+        $null = Invoke-RestMethod -Method Post -Uri "$InfisicalUrl/api/v1/folders" -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+      } catch {
+        if (-not $_.Exception.Response -or $_.Exception.Response.StatusCode.value__ -ne 409) {
+          throw
+        }
+      }
+    }
+
+    if ($parent -eq "/") {
+      $parent = "/$segment"
+    } else {
+      $parent = "$parent/$segment"
+    }
+  }
+}
+
+function Set-InfisicalSecret {
+  param(
+    [string]$SecretPath,
+    [string]$Name,
+    [AllowEmptyString()][string]$Value,
+    [hashtable]$Headers,
+    [bool]$Exists
+  )
+
+  if (-not $Exists) {
+    Ensure-InfisicalFolderPath -SecretPath $SecretPath -Headers $Headers
+  }
+
+  $uri = "$InfisicalUrl/api/v3/secrets/raw/$([uri]::EscapeDataString($Name))"
+  $body = @{
+    environment = $InfisicalEnvironment
+    workspaceId = $InfisicalWorkspaceId
+    projectSlug = $InfisicalProjectSlug
+    secretPath = $SecretPath
+    secretValue = $Value
+    skipMultilineEncoding = $true
+    type = "shared"
+    secretComment = "Managed by scripts/monitoring/Configure-EsusPecApplicationExporters.ps1"
+  } | ConvertTo-Json -Depth 5
+
+  if (-not $Exists) {
+    $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+    return "created"
+  }
+
+  try {
+    $null = Invoke-RestMethod -Method Patch -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+    return "updated"
+  } catch {
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
+      Ensure-InfisicalFolderPath -SecretPath $SecretPath -Headers $Headers
+      $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+      return "created"
+    }
+    throw
+  }
+}
+
+function New-ExporterPassword {
+  $bytes = New-Object byte[] 32
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $rng.GetBytes($bytes)
+  } finally {
+    $rng.Dispose()
+  }
+  return [Convert]::ToBase64String($bytes).
+    TrimEnd("=").
+    Replace("+", "-").
+    Replace("/", "_")
+}
+
+function Get-OrCreatePostgresExporterPassword {
+  param([hashtable]$Headers)
+
+  $name = "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD"
+  $existing = Get-InfisicalSecrets `
+    -SecretPath $InstallationSecretPath `
+    -Headers $Headers
+
+  if ($existing.ContainsKey($name) -and
+      -not [string]::IsNullOrWhiteSpace([string]$existing[$name])) {
+    return [string]$existing[$name]
+  }
+
+  $password = New-ExporterPassword
+  $null = Set-InfisicalSecret `
+    -SecretPath $InstallationSecretPath `
+    -Name $name `
+    -Value $password `
+    -Headers $Headers `
+    -Exists $false
+  return $password
+}
+
+function Assert-TargetContainerIdentity {
+  param([Parameter(Mandatory = $true)][string]$ConfigText)
+
+  $hostnameLine = $ConfigText -split "`n" | Where-Object {
+    $_ -match "^\s*hostname:\s*(?<hostname>\S+)\s*$"
+  } | Select-Object -First 1
+
+  if (-not $hostnameLine) {
+    throw "CTID $TargetCtid exists but its Proxmox hostname could not be read. Refusing to mutate an unverified container."
+  }
+
+  $configuredName = ([regex]::Match($hostnameLine, "^\s*hostname:\s*(?<hostname>\S+)\s*$")).Groups["hostname"].Value
+  if ($configuredName -ne $TargetName) {
+    throw "CTID $TargetCtid exists but hostname is '$configuredName', expected '$TargetName'. Refusing to mutate an unrelated container."
+  }
+}
+
+function Assert-TargetContainerRuntime {
+  $ctExists = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid >/dev/null 2>&1; echo `$?").Trim() -eq "0"
+  if (-not $ctExists) {
+    throw "CTID $TargetCtid ($TargetName) does not exist on the Proxmox host."
+  }
+
+  $ctConfig = Invoke-ProxmoxSsh -Command "pct config $TargetCtid"
+  Assert-TargetContainerIdentity -ConfigText $ctConfig
+
+  $ctStatus = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid").Trim()
+  if ($ctStatus -notmatch "status:\s+running") {
+    throw "CTID $TargetCtid ($TargetName) is not running. Start and verify the container manually before installing application exporters; this script will not mutate CT power state."
+  }
+
+  $runtimeHostname = (Invoke-ContainerBash -Script "hostname -s").Trim()
+  if ($runtimeHostname -ne $TargetName) {
+    throw "CTID $TargetCtid runtime hostname is '$runtimeHostname', expected '$TargetName'. Refusing to continue."
+  }
+}
+
+function Configure-PostgresExporter {
+  $headers = @{ Authorization = "Bearer $(Get-InfisicalToken)" }
+  $runtimeSecrets = Get-InfisicalSecrets `
+    -SecretPath $RuntimeSecretPath `
+    -Headers $headers
+
+  foreach ($requiredName in @(
+    "ESUS_PEC_DB_USER",
+    "ESUS_PEC_DB_PASSWORD"
+  )) {
+    if (-not $runtimeSecrets.ContainsKey($requiredName) -or
+        [string]::IsNullOrWhiteSpace([string]$runtimeSecrets[$requiredName])) {
+      throw "Infisical runtime secret is missing: $requiredName"
+    }
+  }
+
+  $adminUser = [string]$runtimeSecrets["ESUS_PEC_DB_USER"]
+  $adminPassword = [string]$runtimeSecrets["ESUS_PEC_DB_PASSWORD"]
+  $exporterPassword = Get-OrCreatePostgresExporterPassword -Headers $headers
+
+  $sqlPassword = $exporterPassword.Replace("'", "''")
+  $postgresSql = (Get-TemplateContent -Name "postgres-exporter-9.6.sql").
+    Replace("__POSTGRES_EXPORTER_PASSWORD__", $sqlPassword)
+
+  Push-ContainerSecretFile `
+    -Path "/etc/monitoring/postgres-exporter-bootstrap.sql" `
+    -Content $postgresSql `
+    -Mode "0600"
+
+  Push-ContainerSecretFile `
+    -Path "/etc/monitoring/postgres-bootstrap-password" `
+    -Content ($adminPassword + "`n") `
+    -Mode "0600"
+
+  Push-ContainerSecretFile `
+    -Path "/etc/monitoring/postgres-exporter-password" `
+    -Content ($exporterPassword + "`n") `
+    -Owner "root" `
+    -Group "nogroup" `
+    -Mode "0640"
+
+  $dataSourceUri = "127.0.0.1:5433/postgres?sslmode=disable"
+  $environmentContent = @"
+DATA_SOURCE_URI=$dataSourceUri
+DATA_SOURCE_USER=prometheus_exporter
+DATA_SOURCE_PASS_FILE=/etc/monitoring/postgres-exporter-password
+PG_EXPORTER_COLLECTION_TIMEOUT=15s
+"@
+
+  Push-ContainerFile `
+    -Path "/etc/monitoring/postgres-exporter.env" `
+    -Content $environmentContent `
+    -Owner "root" `
+    -Group "nogroup" `
+    -Mode "0640"
+
+  $adminUserShell = ConvertTo-ShellSingleQuoted -Value $adminUser
+  $postgresScript = @'
+set -euo pipefail
+pg_root=/opt/e-SUS/database/postgresql-9.6.13-1-linux-x64
+admin_user=__ADMIN_USER__
+admin_password_file=/etc/monitoring/postgres-bootstrap-password
+
+cleanup_bootstrap_secrets() {
+  unset PGPASSWORD || true
+  rm -f "$admin_password_file" /etc/monitoring/postgres-exporter-bootstrap.sql
+}
+trap cleanup_bootstrap_secrets EXIT HUP INT TERM
+
+export PGPASSWORD="$(cat "$admin_password_file")"
+"$pg_root/bin/psql" \
+  -h 127.0.0.1 \
+  -p 5433 \
+  -U "$admin_user" \
+  -d postgres \
+  -v ON_ERROR_STOP=1 \
+  -Atc "SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user" |
+  grep -qx t
+
+"$pg_root/bin/psql" \
+  -h 127.0.0.1 \
+  -p 5433 \
+  -U "$admin_user" \
+  -d postgres \
+  -f /etc/monitoring/postgres-exporter-bootstrap.sql
+cleanup_bootstrap_secrets
+trap - EXIT HUP INT TERM
+
+download=/tmp/postgres_exporter.tar.gz
+curl -4 -fL --retry 5 --retry-all-errors --connect-timeout 15 \
+  'https://github.com/prometheus-community/postgres_exporter/releases/download/v0.19.1/postgres_exporter-0.19.1.linux-amd64.tar.gz' -o "$download"
+echo '229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0  '"$download" | sha256sum -c -
+tar -xzf "$download" -C /tmp
+install -m 0755 \
+  /tmp/postgres_exporter-0.19.1.linux-amd64/postgres_exporter \
+  /usr/local/bin/postgres_exporter
+rm -rf "$download" /tmp/postgres_exporter-0.19.1.linux-amd64
+
+cat >/etc/systemd/system/prometheus-postgres-exporter.service <<'UNIT'
+[Unit]
+Description=Prometheus PostgreSQL Exporter for e-SUS PEC
+Wants=network-online.target
+After=network-online.target e-SUS-AB-PostgreSQL.service
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+EnvironmentFile=/etc/monitoring/postgres-exporter.env
+ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=0.0.0.0:9187
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/monitoring/postgres-exporter-password
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+chown root:nogroup /etc/monitoring/postgres-exporter.env /etc/monitoring/postgres-exporter-password
+chmod 0640 /etc/monitoring/postgres-exporter.env /etc/monitoring/postgres-exporter-password
+systemctl daemon-reload
+systemctl enable --now prometheus-postgres-exporter
+for attempt in $(seq 1 30); do
+  if curl -fsS http://127.0.0.1:9187/metrics |
+      grep -q '^pg_up 1$'; then
+    printf 'postgres_exporter=ready\n'
+    exit 0
+  fi
+  sleep 2
+done
+systemctl disable --now prometheus-postgres-exporter >/dev/null 2>&1 || true
+journalctl -u prometheus-postgres-exporter -n 30 --no-pager >&2
+exit 1
+'@.
+    Replace("__ADMIN_USER__", $adminUserShell).
+    Replace("__POSTGRES_EXPORTER_URL__", $postgresExporterUrl).
+    Replace("__POSTGRES_EXPORTER_SHA256__", $postgresExporterSha256)
+
+  try {
+    $output = Invoke-ContainerBash -Script $postgresScript
+  } finally {
+    try {
+      Invoke-ContainerBash -Script 'rm -f /etc/monitoring/postgres-bootstrap-password /etc/monitoring/postgres-exporter-bootstrap.sql' | Out-Null
+    } catch {
+      Write-Warning "Failed to remove PostgreSQL bootstrap temporary files; remove them manually if present."
+    }
+  }
+
+  $state = Read-KeyValueOutput -Output $output
+  if ($state.Contains("postgres_exporter")) {
+    return $state["postgres_exporter"]
+  }
+
+  return "unknown"
+}
+
+function Get-JmxProposalStatus {
+  $applyRequested = if ($ApplyJavaServiceChange) { "true" } else { "false" }
+  $jmxScript = @'
+set -euo pipefail
+apply_requested="__APPLY_JAVA_SERVICE_CHANGE__"
+dropin_dir=/etc/systemd/system/e-SUS-PEC.service.d
+dropin_file="$dropin_dir/monitoring-jmx.conf"
+dropin_backup="$(mktemp)"
+java_tool_options='JAVA_TOOL_OPTIONS=-javaagent:/opt/monitoring/jmx_prometheus_javaagent.jar=9404:/etc/monitoring/jmx-exporter.yml'
+
+wait_http_ready() {
+  url="$1"
+  attempts="$2"
+  for attempt in $(seq 1 "$attempts"); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+rollback_jmx() {
+  if [ -f "$dropin_backup" ]; then
+    install -m 0644 "$dropin_backup" "$dropin_file"
+  else
+    rm -f "$dropin_file"
+  fi
+  systemctl daemon-reload
+  systemctl restart e-SUS-PEC.service
+  wait_http_ready http://127.0.0.1:8080 90
+}
+
+if [ "$apply_requested" = "task4-placeholder-never" ]; then
+  install -d -m 0755 /opt/monitoring /etc/monitoring
+  jmx_tmp=/tmp/jmx_prometheus_javaagent.jar
+  curl -4 -fL --retry 5 --retry-all-errors --connect-timeout 15 \
+    'https://github.com/prometheus/jmx_exporter/releases/download/v1.6.0/jmx_prometheus_javaagent-1.6.0.jar' \
+    -o "$jmx_tmp"
+  echo 'a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e  '"$jmx_tmp" |
+    sha256sum -c -
+  rollback_jmx
+fi
+
+wait_http_ready http://127.0.0.1:8080 1 >/dev/null 2>&1 || true
+rm -f "$dropin_backup"
+printf 'jmx=proposal\n'
+'@.Replace("__APPLY_JAVA_SERVICE_CHANGE__", $applyRequested)
+
+  $output = Invoke-ContainerBash -Script $jmxScript
+  $state = Read-KeyValueOutput -Output $output
+  if ($state.Contains("jmx")) {
+    return $state["jmx"]
+  }
+  return "proposal"
+}
+
+$configText = Get-Content -LiteralPath $ConfigFile -Raw
+$sshHost = Get-HclValue -Name "proxmox_ssh_host" -Text $configText
+$script:SshPort = Get-HclValue -Name "proxmox_ssh_port" -Text $configText -Default "22"
+$sshUser = Get-HclValue -Name "proxmox_ssh_user" -Text $configText -Default "root"
+$script:SshKey = Get-HclValue -Name "proxmox_ssh_private_key_file" -Text $configText
+
+if ([string]::IsNullOrWhiteSpace($sshHost) -or [string]::IsNullOrWhiteSpace($script:SshKey)) {
+  throw "Missing proxmox_ssh_host or proxmox_ssh_private_key_file in $ConfigFile."
+}
+if (-not (Test-Path -LiteralPath $script:SshKey -PathType Leaf)) {
+  throw "SSH private key file not found: $script:SshKey"
+}
+
+$script:SshTarget = "$sshUser@$sshHost"
+
+Assert-TargetContainerRuntime
+
+$summary = [ordered]@{
+  target = [ordered]@{
+    ctid = $TargetCtid
+    name = $TargetName
+    metrics_host = $TargetMetricsHost
+    monitoring_core_host = $MonitoringCoreHost
+  }
+  postgres_exporter = "skipped"
+  jmx = "skipped"
+}
+
+if ($ConfigurePostgresExporter) {
+  $summary["postgres_exporter"] = Configure-PostgresExporter
+}
+
+if ($ConfigureJmxExporter) {
+  $summary["jmx"] = Get-JmxProposalStatus
+}
+
+$summary | ConvertTo-Json -Depth 4
