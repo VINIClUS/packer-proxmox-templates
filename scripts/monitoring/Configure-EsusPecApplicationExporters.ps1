@@ -445,6 +445,20 @@ function Assert-TargetContainerRuntime {
   if ($runtimeHostname -ne $TargetName) {
     throw "CTID $TargetCtid runtime hostname is '$runtimeHostname', expected '$TargetName'. Refusing to continue."
   }
+
+  $targetMetricsHostShell = ConvertTo-ShellSingleQuoted -Value $TargetMetricsHost
+  Invoke-ContainerBash -Script @"
+set -euo pipefail
+target_metrics_host=$targetMetricsHostShell
+addresses="`$(hostname -I 2>/dev/null || true)"
+if command -v ip >/dev/null 2>&1; then
+  addresses="`$addresses `$(ip -o -4 addr show | awk '{ split(`$4, cidr, "/"); print cidr[1] }')"
+fi
+if ! printf ' %s ' "`$addresses" | grep -Fq " `$target_metrics_host "; then
+  echo "CTID $TargetCtid ($TargetName) does not have expected TargetMetricsHost IP `$target_metrics_host." >&2
+  exit 1
+fi
+"@ | Out-Null
 }
 
 function Configure-PostgresExporter {
@@ -485,8 +499,8 @@ function Configure-PostgresExporter {
     -Path "/etc/monitoring/postgres-exporter-password" `
     -Content ($exporterPassword + "`n") `
     -Owner "root" `
-    -Group "nogroup" `
-    -Mode "0640"
+    -Group "root" `
+    -Mode "0600"
 
   $dataSourceUri = "127.0.0.1:5433/postgres?sslmode=disable"
   $environmentContent = @"
@@ -500,15 +514,18 @@ PG_EXPORTER_COLLECTION_TIMEOUT=15s
     -Path "/etc/monitoring/postgres-exporter.env" `
     -Content $environmentContent `
     -Owner "root" `
-    -Group "nogroup" `
-    -Mode "0640"
+    -Group "root" `
+    -Mode "0600"
 
   $adminUserShell = ConvertTo-ShellSingleQuoted -Value $adminUser
+  $monitoringCoreHostShell = ConvertTo-ShellSingleQuoted -Value $MonitoringCoreHost
   $postgresScript = @'
 set -euo pipefail
 pg_root=/opt/e-SUS/database/postgresql-9.6.13-1-linux-x64
 admin_user=__ADMIN_USER__
 admin_password_file=/etc/monitoring/postgres-bootstrap-password
+exporter_user=prometheus-postgres-exporter
+monitoring_core_host=__MONITORING_CORE_HOST__
 
 cleanup_bootstrap_secrets() {
   unset PGPASSWORD || true
@@ -535,26 +552,82 @@ export PGPASSWORD="$(cat "$admin_password_file")"
 cleanup_bootstrap_secrets
 trap - EXIT HUP INT TERM
 
-download=/tmp/postgres_exporter.tar.gz
+if ! getent group "$exporter_user" >/dev/null 2>&1; then
+  groupadd --system "$exporter_user"
+fi
+if ! id -u "$exporter_user" >/dev/null 2>&1; then
+  useradd --system --no-create-home --shell /usr/sbin/nologin --gid "$exporter_user" "$exporter_user"
+fi
+
+chown root:"$exporter_user" /etc/monitoring/postgres-exporter.env /etc/monitoring/postgres-exporter-password
+chmod 0640 /etc/monitoring/postgres-exporter.env /etc/monitoring/postgres-exporter-password
+
+apply_postgres_exporter_firewall() {
+  if ! command -v nft >/dev/null 2>&1; then
+    systemctl disable --now prometheus-postgres-exporter >/dev/null 2>&1 || true
+    echo "nft command is required before exposing prometheus-postgres-exporter on tcp dport 9187." >&2
+    exit 1
+  fi
+
+  cat >/usr/local/sbin/apply-pec-postgres-exporter-firewall <<'FIREWALL'
+#!/bin/sh
+set -eu
+monitoring_core_host="$1"
+if ! command -v nft >/dev/null 2>&1; then
+  echo "nft command is required before exposing prometheus-postgres-exporter on tcp dport 9187." >&2
+  exit 1
+fi
+nft list table inet pec_postgres_exporter >/dev/null 2>&1 &&
+  nft delete table inet pec_postgres_exporter || true
+nft add table inet pec_postgres_exporter
+nft 'add chain inet pec_postgres_exporter input { type filter hook input priority -50; policy accept; }'
+nft add rule inet pec_postgres_exporter input iifname "lo" tcp dport 9187 accept
+nft add rule inet pec_postgres_exporter input ip saddr "$monitoring_core_host" tcp dport 9187 accept
+nft add rule inet pec_postgres_exporter input tcp dport 9187 drop
+FIREWALL
+  chmod 0755 /usr/local/sbin/apply-pec-postgres-exporter-firewall
+
+  cat >/etc/systemd/system/prometheus-postgres-exporter-firewall.service <<'UNIT'
+[Unit]
+Description=Firewall for Prometheus PostgreSQL Exporter
+DefaultDependencies=no
+Before=prometheus-postgres-exporter.service
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/apply-pec-postgres-exporter-firewall __MONITORING_CORE_HOST__
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  /usr/local/sbin/apply-pec-postgres-exporter-firewall "$monitoring_core_host"
+}
+
+work_dir="$(mktemp -d /tmp/postgres-exporter.XXXXXX)"
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+download="$work_dir/postgres_exporter.tar.gz"
 curl -4 -fL --retry 5 --retry-all-errors --connect-timeout 15 \
-  'https://github.com/prometheus-community/postgres_exporter/releases/download/v0.19.1/postgres_exporter-0.19.1.linux-amd64.tar.gz' -o "$download"
-echo '229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0  '"$download" | sha256sum -c -
-tar -xzf "$download" -C /tmp
+  '__POSTGRES_EXPORTER_URL__' -o "$download"
+echo '__POSTGRES_EXPORTER_SHA256__  '"$download" | sha256sum -c -
+tar -xzf "$download" -C "$work_dir"
 install -m 0755 \
-  /tmp/postgres_exporter-0.19.1.linux-amd64/postgres_exporter \
+  "$work_dir/postgres_exporter-0.19.1.linux-amd64/postgres_exporter" \
   /usr/local/bin/postgres_exporter
-rm -rf "$download" /tmp/postgres_exporter-0.19.1.linux-amd64
 
 cat >/etc/systemd/system/prometheus-postgres-exporter.service <<'UNIT'
 [Unit]
 Description=Prometheus PostgreSQL Exporter for e-SUS PEC
-Wants=network-online.target
-After=network-online.target e-SUS-AB-PostgreSQL.service
+Wants=network-online.target prometheus-postgres-exporter-firewall.service
+After=network-online.target prometheus-postgres-exporter-firewall.service e-SUS-AB-PostgreSQL.service
 
 [Service]
 Type=simple
-User=nobody
-Group=nogroup
+User=prometheus-postgres-exporter
+Group=prometheus-postgres-exporter
 EnvironmentFile=/etc/monitoring/postgres-exporter.env
 ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=0.0.0.0:9187
 Restart=always
@@ -569,9 +642,11 @@ ReadOnlyPaths=/etc/monitoring/postgres-exporter-password
 WantedBy=multi-user.target
 UNIT
 
-chown root:nogroup /etc/monitoring/postgres-exporter.env /etc/monitoring/postgres-exporter-password
+chown root:prometheus-postgres-exporter /etc/monitoring/postgres-exporter.env /etc/monitoring/postgres-exporter-password
 chmod 0640 /etc/monitoring/postgres-exporter.env /etc/monitoring/postgres-exporter-password
+apply_postgres_exporter_firewall
 systemctl daemon-reload
+systemctl enable --now prometheus-postgres-exporter-firewall
 systemctl enable --now prometheus-postgres-exporter
 for attempt in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:9187/metrics |
@@ -586,6 +661,7 @@ journalctl -u prometheus-postgres-exporter -n 30 --no-pager >&2
 exit 1
 '@.
     Replace("__ADMIN_USER__", $adminUserShell).
+    Replace("__MONITORING_CORE_HOST__", $monitoringCoreHostShell).
     Replace("__POSTGRES_EXPORTER_URL__", $postgresExporterUrl).
     Replace("__POSTGRES_EXPORTER_SHA256__", $postgresExporterSha256)
 

@@ -76,8 +76,8 @@ foreach ($pinnedArtifact in $pinnedApplicationExporterPatterns.GetEnumerator()) 
 }
 
 $downloadIntegrityPatterns = @{
-  postgres_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*https://github\.com/prometheus-community/postgres_exporter/releases/download/v0\.19\.1/postgres_exporter-0\.19\.1\.linux-amd64\.tar\.gz(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$download"\s*$'
-  postgres_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0[^\r\n|]*"\$download"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
+  postgres_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*__POSTGRES_EXPORTER_URL__(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$download"\s*$'
+  postgres_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*__POSTGRES_EXPORTER_SHA256__[^\r\n|]*"\$download"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
   jmx_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*https://github\.com/prometheus/jmx_exporter/releases/download/v1\.6\.0/jmx_prometheus_javaagent-1\.6\.0\.jar(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$jmx_tmp"\s*$'
   jmx_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e[^\r\n|]*"\$jmx_tmp"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
 }
@@ -92,8 +92,28 @@ foreach ($term in @(
   "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
   "/test/InstallationConfig",
   "prometheus_exporter",
+  "prometheus-postgres-exporter",
   "127.0.0.1:5433",
   "DATA_SOURCE_PASS_FILE",
+  "useradd --system --no-create-home --shell /usr/sbin/nologin",
+  "User=prometheus-postgres-exporter",
+  "Group=prometheus-postgres-exporter",
+  "root:prometheus-postgres-exporter",
+  "mktemp -d /tmp/postgres-exporter.XXXXXX",
+  'trap ''rm -rf "$work_dir"'' EXIT HUP INT TERM',
+  "TargetMetricsHost",
+  "hostname -I",
+  "ip -o -4 addr",
+  "MonitoringCoreHost",
+  "nft",
+  "tcp dport 9187",
+  "/usr/local/sbin/apply-pec-postgres-exporter-firewall",
+  "prometheus-postgres-exporter-firewall.service",
+  "Before=prometheus-postgres-exporter.service",
+  "__POSTGRES_EXPORTER_URL__",
+  "__POSTGRES_EXPORTER_SHA256__",
+  'Replace("__POSTGRES_EXPORTER_URL__", $postgresExporterUrl)',
+  'Replace("__POSTGRES_EXPORTER_SHA256__", $postgresExporterSha256)',
   "monitoring-jmx.conf",
   "JAVA_TOOL_OPTIONS"
 )) {
