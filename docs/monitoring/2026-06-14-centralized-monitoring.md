@@ -67,6 +67,55 @@ Prometheus, Grafana, Loki, and Alloy as systemd services. `Install-MonitoringTar
 targets CT `133 esus-pec-lxc-5437` by default and installs Alloy plus exporter
 services.
 
+## Grafana Dashboards
+
+Managed dashboards live in `scripts/monitoring/dashboards` and are published
+through the Grafana API using these local `.env` keys:
+
+```text
+grafana_url=http://192.168.1.190:3000
+grafana_token=<Grafana service account token>
+```
+
+Create the token as a Grafana service account token with dashboard and folder
+write permissions. Do not store the token in tracked files. The publisher reads
+lowercase names from `.env` and also accepts uppercase environment variables.
+
+Publish or update the managed dashboards:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Publish-GrafanaDashboards.ps1
+```
+
+The managed folder is `e-SUS PEC Monitoring` with folder UID
+`esus-pec-monitoring`. The current dashboard set is:
+
+- `e-SUS Monitoring Overview`
+- `Monitoring Core CT 190`
+- `e-SUS PEC CT 133`
+- `Logs and Diagnostics`
+
+Datasource UIDs are fixed in provisioning as `prometheus` and `loki`, matching
+Grafana's supported datasource UID provisioning model.
+
+## Infisical Grafana Env Sync
+
+The appropriate Infisical location for Grafana dashboard publishing variables is
+`/test/InstallationConfig` in project `esus-pec-z-px-c`, environment `dev`.
+This reuses the existing writable configuration path for the e-SUS PEC lab
+environment and avoids requiring a new secret-folder permission. Tracked
+placeholders are in `config/esus-pec.infisical.env.example`.
+
+Sync the non-secret URL and, when present locally, the token value:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1
+```
+
+If `grafana_token` is absent locally, the script writes only `grafana_url` and
+reports `grafana_token` as skipped without overwriting any existing remote
+token.
+
 ## Validation
 
 Static validation:
@@ -93,6 +142,11 @@ Monitoring stack static validation passed.
 Do not commit, paste, or print Grafana passwords, PostgreSQL DSNs, tokens,
 patient data, request body data, or raw sensitive logs in Git, chat, terminal
 logs, screenshots, or documentation.
+
+The Grafana dashboard publisher requires `grafana_token`, but the token value is
+only read from `.env`, environment variables, or Infisical. The sync and publish
+scripts report presence/absence and target paths only; they do not print token
+values.
 
 The PostgreSQL exporter is optional. If PostgreSQL exporter access is needed,
 run `scripts/monitoring/Install-MonitoringTargetAgent.ps1` with
@@ -212,3 +266,32 @@ Loki evidence collected on 2026-06-14:
 
 - `GET /loki/api/v1/labels` returned `5` label names, confirming non-empty
   Loki ingestion metadata without recording raw log content.
+
+Grafana dashboard and Infisical env evidence collected on 2026-06-14:
+
+- `scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1`: synced
+  `/test/InstallationConfig/grafana_url` and
+  `/test/InstallationConfig/grafana_token`; output reported both values present
+  without printing either value.
+- A dedicated `/test/Monitoring/Grafana` Infisical path was evaluated first,
+  but the current token could not create that secret-folder tree. The writable
+  path `/test/InstallationConfig` is therefore the current operational location.
+- `scripts/monitoring/Publish-GrafanaDashboards.ps1`: Grafana database health
+  `ok`; folder UID `esus-pec-monitoring`; `4` dashboards updated.
+- Dashboard JSON validation: all files under `scripts/monitoring/dashboards`
+  parsed successfully with Node JSON parsing.
+
+Grafana dashboard connection repair evidence collected on 2026-06-14:
+
+- Symptom: CT `133` dashboard panels showed `No data`.
+- Root cause: dashboard PromQL referenced nonexistent jobs
+  `esus-pec-lxc-5437-node` and `esus-pec-lxc-5437-nginx`.
+- Observed Prometheus labels: CT `133` target series use
+  `host="esus-pec-lxc-5437"`, `job="esus-pec-lxc-5437"`, and distinguish
+  node/Nginx exporters by `instance="192.168.1.209:9100"` and
+  `instance="192.168.1.209:9113"`.
+- Corrected dashboard selectors returned live data for node exporter, Nginx
+  exporter, CPU, memory, and Nginx activity before republishing dashboards.
+- Loki labels for CT `133` exist with `host="esus-pec-lxc-5437"`, but log
+  panels can still be empty when there are no matching logs in the selected
+  time range.

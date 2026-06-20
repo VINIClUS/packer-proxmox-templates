@@ -1,0 +1,28 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 }, "id": 1, "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "time() - node_boot_time_seconds{job=~\"monitoring-core.*\"}", "legendFormat": "uptime", "refId": "A" }], "title": "CT 190 Uptime", "type": "stat" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1 }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 }, "id": 2, "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "1 - avg(rate(node_cpu_seconds_total{job=~\"monitoring-core.*\",mode=\"idle\"}[5m]))", "legendFormat": "cpu", "refId": "A" }], "title": "CT 190 CPU", "type": "stat" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1 }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 }, "id": 3, "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "1 - (node_memory_MemAvailable_bytes{job=~\"monitoring-core.*\"} / node_memory_MemTotal_bytes{job=~\"monitoring-core.*\"})", "legendFormat": "memory", "refId": "A" }], "title": "CT 190 Memory", "type": "stat" },
+    { "datasource": { "type": "loki", "uid": "loki" }, "fieldConfig": { "defaults": { "unit": "logs/s", "decimals": 2 }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 }, "id": 4, "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(rate({host=\"monitoring-core\"}[5m]))", "legendFormat": "logs/s", "queryType": "range", "refId": "A" }], "title": "CT 190 Logs/s", "type": "stat" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 }, "id": 5, "options": { "cellHeight": "sm", "showHeader": true }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up{job=~\"monitoring-core.*\"}", "format": "table", "instant": true, "refId": "A" }], "title": "Core Scrape State", "type": "table" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1 }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }, "id": 6, "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "1 - avg by (cpu) (rate(node_cpu_seconds_total{job=~\"monitoring-core.*\",mode=\"idle\"}[5m]))", "legendFormat": "cpu {{cpu}}", "refId": "A" }], "title": "CPU by Core", "type": "timeseries" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }, "id": 7, "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(node_network_receive_bytes_total{job=~\"monitoring-core.*\",device!~\"lo\"}[5m])", "legendFormat": "rx {{device}}", "refId": "A" }, { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(node_network_transmit_bytes_total{job=~\"monitoring-core.*\",device!~\"lo\"}[5m])", "legendFormat": "tx {{device}}", "refId": "B" }], "title": "Network Throughput", "type": "timeseries" },
+    { "datasource": { "type": "loki", "uid": "loki" }, "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 }, "id": 8, "options": { "dedupStrategy": "numbers", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false }, "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "{host=\"monitoring-core\", job=~\"monitoring-core-journal|monitoring-core-syslog\"} |~ \"$search\"", "queryType": "range", "refId": "A" }], "title": "Monitoring Core Logs", "type": "logs" }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["monitoring-core", "ct190", "esus"],
+  "templating": { "list": [{ "current": { "selected": false, "text": "", "value": "" }, "hide": 0, "label": "Log search", "name": "search", "query": "", "type": "textbox" }] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Monitoring Core CT 190",
+  "uid": "monitoring-core-ct190",
+  "version": 1,
+  "weekStart": ""
+}

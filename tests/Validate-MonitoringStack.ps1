@@ -11,6 +11,12 @@ $requiredArtifacts = @(
   "scripts/monitoring/templates/alloy-core.alloy",
   "scripts/monitoring/templates/alloy-linux-target.alloy",
   "scripts/monitoring/templates/grafana-datasources.yml",
+  "scripts/monitoring/Publish-GrafanaDashboards.ps1",
+  "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1",
+  "scripts/monitoring/dashboards/esus-monitoring-overview.json",
+  "scripts/monitoring/dashboards/monitoring-core-ct190.json",
+  "scripts/monitoring/dashboards/esus-pec-ct133.json",
+  "scripts/monitoring/dashboards/logs-diagnostics.json",
   "docs/monitoring/2026-06-14-centralized-monitoring.md",
   "docs/superpowers/specs/2026-06-14-esus-pec-centralized-monitoring-design.md"
 )
@@ -103,6 +109,55 @@ Assert-ArtifactContainsTerm "scripts/monitoring/templates/loki.yml" "Loki" "Loki
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-core.alloy" "Alloy" "Alloy core template"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-linux-target.alloy" "Alloy" "Alloy target template"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "Grafana" "Grafana datasource template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "uid: prometheus" "Grafana Prometheus datasource UID"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "uid: loki" "Grafana Loki datasource UID"
+Assert-ArtifactContainsTerm "scripts/monitoring/Publish-GrafanaDashboards.ps1" "grafana_url" "Grafana publish env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Publish-GrafanaDashboards.ps1" "grafana_token" "Grafana publish env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "/test/InstallationConfig" "Grafana Infisical path"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_url" "Grafana Infisical env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_token" "Grafana Infisical env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "api/v1/folders" "Grafana Infisical folder creation"
+
+$dashboardArtifacts = $artifacts | Where-Object { $_.Path -match '^scripts/monitoring/dashboards/.*\.json$' }
+if ($dashboardArtifacts.Count -ne 4) {
+  throw "Expected exactly 4 managed Grafana dashboards; found $($dashboardArtifacts.Count)."
+}
+
+foreach ($dashboardArtifact in $dashboardArtifacts) {
+  try {
+    $dashboard = $dashboardArtifact.Content | ConvertFrom-Json
+  } catch {
+    throw "Grafana dashboard is not valid JSON: $($dashboardArtifact.Path)"
+  }
+
+  foreach ($property in @("uid", "title", "panels", "templating", "time")) {
+    if (-not ($dashboard.PSObject.Properties.Name -contains $property)) {
+      throw "Grafana dashboard '$($dashboardArtifact.Path)' is missing property: $property"
+    }
+  }
+  if (@($dashboard.panels).Count -lt 8) {
+    throw "Grafana dashboard '$($dashboard.title)' must be dense enough for operations; expected at least 8 panels."
+  }
+  if ($dashboardArtifact.Content -notmatch '"uid"\s*:\s*"prometheus"' -or $dashboardArtifact.Content -notmatch '"uid"\s*:\s*"loki"') {
+    throw "Grafana dashboard '$($dashboard.title)' must reference both Prometheus and Loki datasources by UID."
+  }
+}
+
+$ct133Dashboard = $artifactByPath["scripts/monitoring/dashboards/esus-pec-ct133.json"].Content
+foreach ($obsoleteCt133Job in @("esus-pec-lxc-5437-node", "esus-pec-lxc-5437-nginx")) {
+  if ($ct133Dashboard -match [regex]::Escape($obsoleteCt133Job)) {
+    throw "CT 133 dashboard references obsolete Prometheus job label: $obsoleteCt133Job"
+  }
+}
+foreach ($requiredCt133Selector in @(
+  'host=\"esus-pec-lxc-5437\"',
+  'instance=\"192.168.1.209:9100\"',
+  'instance=\"192.168.1.209:9113\"'
+)) {
+  if ($ct133Dashboard -notmatch [regex]::Escape($requiredCt133Selector)) {
+    throw "CT 133 dashboard must use observed Prometheus selector: $requiredCt133Selector"
+  }
+}
 
 $coreProvisioner = $artifactByPath["scripts/monitoring/Provision-MonitoringCore.ps1"].Content
 foreach ($obsoletePrometheusConsoleReference in @("--web.console.templates", "--web.console.libraries", "/usr/local/share/prometheus/consoles", "/usr/local/share/prometheus/console_libraries")) {

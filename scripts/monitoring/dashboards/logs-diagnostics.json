@@ -1,0 +1,28 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    { "datasource": { "type": "loki", "uid": "loki" }, "fieldConfig": { "defaults": { "unit": "logs/s", "decimals": 2 }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 }, "id": 1, "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum(rate({job=~\"$job\"}[5m]))", "legendFormat": "logs/s", "queryType": "range", "refId": "A" }], "title": "Log Volume", "type": "stat" },
+    { "datasource": { "type": "loki", "uid": "loki" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 }, "id": 2, "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "count_over_time({job=~\"$job\"} |~ \"(?i)(error|exception|fatal|panic)\" [15m])", "legendFormat": "errors", "queryType": "range", "refId": "A" }], "title": "Errors in 15m", "type": "stat" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 }, "id": 3, "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(up)", "legendFormat": "targets", "refId": "A" }], "title": "Scrape Targets UP", "type": "stat" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 }, "id": 4, "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "count(up == 0)", "legendFormat": "down", "refId": "A" }], "title": "Scrape Targets DOWN", "type": "stat" },
+    { "datasource": { "type": "loki", "uid": "loki" }, "fieldConfig": { "defaults": { "unit": "logs/s", "decimals": 2 }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }, "id": 5, "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }, "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (host, job) (rate({job=~\"$job\"}[5m]))", "legendFormat": "{{host}} {{job}}", "queryType": "range", "refId": "A" }], "title": "Log Rate by Host and Job", "type": "timeseries" },
+    { "datasource": { "type": "loki", "uid": "loki" }, "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }, "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }, "id": 6, "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }, "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "sum by (host, job) (count_over_time({job=~\"$job\"} |~ \"$search\" [5m]))", "legendFormat": "{{host}} {{job}}", "queryType": "range", "refId": "A" }], "title": "Search Hits by Source", "type": "timeseries" },
+    { "datasource": { "type": "loki", "uid": "loki" }, "gridPos": { "h": 9, "w": 16, "x": 0, "y": 12 }, "id": 7, "options": { "dedupStrategy": "numbers", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": false }, "targets": [{ "datasource": { "type": "loki", "uid": "loki" }, "expr": "{host=~\"$host\", job=~\"$job\"} |~ \"$search\"", "queryType": "range", "refId": "A" }], "title": "Filtered Logs", "type": "logs" },
+    { "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": {}, "overrides": [] }, "gridPos": { "h": 9, "w": 8, "x": 16, "y": 12 }, "id": 8, "options": { "cellHeight": "sm", "showHeader": true }, "targets": [{ "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up", "format": "table", "instant": true, "refId": "A" }], "title": "Target Context", "type": "table" }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["logs", "diagnostics", "loki"],
+  "templating": { "list": [{ "current": { "selected": true, "text": ".*", "value": ".*" }, "hide": 0, "label": "Host", "name": "host", "options": [{ "selected": true, "text": ".*", "value": ".*" }], "query": ".*", "type": "custom" }, { "current": { "selected": true, "text": ".*", "value": ".*" }, "hide": 0, "label": "Job", "name": "job", "options": [{ "selected": true, "text": ".*", "value": ".*" }], "query": ".*", "type": "custom" }, { "current": { "selected": false, "text": "", "value": "" }, "hide": 0, "label": "Search", "name": "search", "query": "", "type": "textbox" }] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Logs and Diagnostics",
+  "uid": "logs-diagnostics",
+  "version": 1,
+  "weekStart": ""
+}
