@@ -683,15 +683,26 @@ exit 1
   return "unknown"
 }
 
-function Get-JmxProposalStatus {
+function Configure-JmxExporter {
+  $jmxExporterConfig = Get-TemplateContent -Name "jmx-exporter.yml"
+  Push-ContainerFile `
+    -Path "/etc/monitoring/jmx-exporter.yml" `
+    -Content $jmxExporterConfig `
+    -Owner "root" `
+    -Group "root" `
+    -Mode "0644"
+
   $applyRequested = if ($ApplyJavaServiceChange) { "true" } else { "false" }
+  $monitoringCoreHostShell = ConvertTo-ShellSingleQuoted -Value $MonitoringCoreHost
   $jmxScript = @'
 set -euo pipefail
 apply_requested="__APPLY_JAVA_SERVICE_CHANGE__"
+monitoring_core_host=__MONITORING_CORE_HOST__
 dropin_dir=/etc/systemd/system/e-SUS-PEC.service.d
 dropin_file="$dropin_dir/monitoring-jmx.conf"
+jmx_tmp="$(mktemp -d /tmp/jmx-exporter.XXXXXX)"
 dropin_backup="$(mktemp)"
-java_tool_options='JAVA_TOOL_OPTIONS=-javaagent:/opt/monitoring/jmx_prometheus_javaagent.jar=9404:/etc/monitoring/jmx-exporter.yml'
+trap 'rm -rf "$jmx_tmp" "$dropin_backup"' EXIT HUP INT TERM
 
 wait_http_ready() {
   url="$1"
@@ -707,6 +718,7 @@ wait_http_ready() {
 
 rollback_jmx() {
   if [ -f "$dropin_backup" ]; then
+    install -d -m 0755 "$dropin_dir"
     install -m 0644 "$dropin_backup" "$dropin_file"
   else
     rm -f "$dropin_file"
@@ -716,28 +728,124 @@ rollback_jmx() {
   wait_http_ready http://127.0.0.1:8080 90
 }
 
-if [ "$apply_requested" = "task4-placeholder-never" ]; then
-  install -d -m 0755 /opt/monitoring /etc/monitoring
-  jmx_tmp=/tmp/jmx_prometheus_javaagent.jar
-  curl -4 -fL --retry 5 --retry-all-errors --connect-timeout 15 \
-    'https://github.com/prometheus/jmx_exporter/releases/download/v1.6.0/jmx_prometheus_javaagent-1.6.0.jar' \
-    -o "$jmx_tmp"
-  echo 'a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e  '"$jmx_tmp" |
-    sha256sum -c -
-  rollback_jmx
+apply_jmx_exporter_firewall() {
+  if ! command -v nft >/dev/null 2>&1; then
+    echo "nft command is required before exposing JMX exporter on tcp dport 9404." >&2
+    exit 1
+  fi
+
+  cat >/usr/local/sbin/apply-pec-jmx-exporter-firewall <<'FIREWALL'
+#!/bin/sh
+set -eu
+monitoring_core_host="$1"
+if ! command -v nft >/dev/null 2>&1; then
+  echo "nft command is required before exposing JMX exporter on tcp dport 9404." >&2
+  exit 1
+fi
+nft list table inet pec_jmx_exporter >/dev/null 2>&1 &&
+  nft delete table inet pec_jmx_exporter || true
+nft add table inet pec_jmx_exporter
+nft 'add chain inet pec_jmx_exporter input { type filter hook input priority -49; policy accept; }'
+nft add rule inet pec_jmx_exporter input iifname "lo" tcp dport 9404 accept
+nft add rule inet pec_jmx_exporter input ip saddr "$monitoring_core_host" tcp dport 9404 accept
+nft add rule inet pec_jmx_exporter input tcp dport 9404 reject
+FIREWALL
+  chmod 0755 /usr/local/sbin/apply-pec-jmx-exporter-firewall
+
+  cat >/etc/systemd/system/pec-jmx-exporter-firewall.service <<'UNIT'
+[Unit]
+Description=Firewall for e-SUS PEC JMX Exporter
+DefaultDependencies=no
+Before=e-SUS-PEC.service
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/apply-pec-jmx-exporter-firewall __MONITORING_CORE_HOST__
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  /usr/local/sbin/apply-pec-jmx-exporter-firewall "$monitoring_core_host"
+  systemctl daemon-reload
+  systemctl enable --now pec-jmx-exporter-firewall.service >/dev/null
+}
+
+if ! command -v nft >/dev/null 2>&1; then
+  echo "nft command is required before exposing JMX exporter on tcp dport 9404." >&2
+  exit 1
 fi
 
-wait_http_ready http://127.0.0.1:8080 1 >/dev/null 2>&1 || true
-rm -f "$dropin_backup"
-printf 'jmx=proposal\n'
-'@.Replace("__APPLY_JAVA_SERVICE_CHANGE__", $applyRequested)
+install -d -m 0755 /opt/monitoring /etc/monitoring
+chown root:root /etc/monitoring/jmx-exporter.yml
+chmod 0644 /etc/monitoring/jmx-exporter.yml
+curl -4 -fL --retry 5 --retry-all-errors --connect-timeout 15 \
+  '__JMX_EXPORTER_URL__' \
+  -o "$jmx_tmp/jmx_prometheus_javaagent.jar"
+echo '__JMX_EXPORTER_SHA256__  '"$jmx_tmp/jmx_prometheus_javaagent.jar" |
+  sha256sum -c -
+install -m 0644 "$jmx_tmp/jmx_prometheus_javaagent.jar" /opt/monitoring/jmx_prometheus_javaagent.jar
+apply_jmx_exporter_firewall
+
+if [ "$apply_requested" != "true" ]; then
+  printf 'jmx=staged-awaiting-apply\n'
+  exit 0
+fi
+
+systemctl is-active e-SUS-PEC.service >/dev/null
+wait_http_ready http://127.0.0.1:8080 5
+/opt/e-SUS/jre/current/bin/java -version 2>&1 | grep -q '17\.'
+
+install -d -m 0755 "$dropin_dir"
+if [ -f "$dropin_file" ]; then
+  cp -p "$dropin_file" "$dropin_backup"
+else
+  rm -f "$dropin_backup"
+fi
+
+cat >"$dropin_file" <<'UNIT'
+[Service]
+Environment="JAVA_TOOL_OPTIONS=-javaagent:/opt/monitoring/jmx_prometheus_javaagent.jar=9404:/etc/monitoring/jmx-exporter.yml"
+UNIT
+chmod 0644 "$dropin_file"
+
+systemctl daemon-reload
+if ! systemctl restart e-SUS-PEC.service; then
+  rollback_jmx
+  echo "e-SUS-PEC.service restart failed after JMX drop-in; restored previous JMX state." >&2
+  exit 1
+fi
+
+if ! wait_http_ready http://127.0.0.1:8080 90 ||
+   ! wait_http_ready http://127.0.0.1:9404/metrics 60; then
+  rollback_jmx
+  echo "PEC HTTP or JMX endpoint failed readiness after JMX drop-in; restored previous JMX state." >&2
+  exit 1
+fi
+
+if ! curl -fsS http://127.0.0.1:9404/metrics |
+    grep -Eq '^jvm_(memory|gc|threads)_'; then
+  rollback_jmx
+  echo "JMX exporter metrics did not include JVM memory, GC, or thread metrics; restored previous JMX state." >&2
+  exit 1
+fi
+
+printf 'jmx=ready\n'
+'@.
+    Replace("__APPLY_JAVA_SERVICE_CHANGE__", $applyRequested).
+    Replace("__MONITORING_CORE_HOST__", $monitoringCoreHostShell).
+    Replace("__JMX_EXPORTER_URL__", $jmxExporterUrl).
+    Replace("__JMX_EXPORTER_SHA256__", $jmxExporterSha256)
 
   $output = Invoke-ContainerBash -Script $jmxScript
   $state = Read-KeyValueOutput -Output $output
   if ($state.Contains("jmx")) {
     return $state["jmx"]
   }
-  return "proposal"
+  return "unknown"
 }
 
 $configText = Get-Content -LiteralPath $ConfigFile -Raw
@@ -773,7 +881,7 @@ if ($ConfigurePostgresExporter) {
 }
 
 if ($ConfigureJmxExporter) {
-  $summary["jmx"] = Get-JmxProposalStatus
+  $summary["jmx"] = Configure-JmxExporter
 }
 
 $summary | ConvertTo-Json -Depth 4

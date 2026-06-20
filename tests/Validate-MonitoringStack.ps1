@@ -78,8 +78,8 @@ foreach ($pinnedArtifact in $pinnedApplicationExporterPatterns.GetEnumerator()) 
 $downloadIntegrityPatterns = @{
   postgres_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*__POSTGRES_EXPORTER_URL__(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$download"\s*$'
   postgres_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*__POSTGRES_EXPORTER_SHA256__[^\r\n|]*"\$download"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
-  jmx_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*https://github\.com/prometheus/jmx_exporter/releases/download/v1\.6\.0/jmx_prometheus_javaagent-1\.6\.0\.jar(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$jmx_tmp"\s*$'
-  jmx_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e[^\r\n|]*"\$jmx_tmp"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
+  jmx_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*__JMX_EXPORTER_URL__(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$jmx_tmp/jmx_prometheus_javaagent\.jar"\s*$'
+  jmx_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*__JMX_EXPORTER_SHA256__[^\r\n|]*"\$jmx_tmp/jmx_prometheus_javaagent\.jar"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
 }
 
 foreach ($downloadIntegrity in $downloadIntegrityPatterns.GetEnumerator()) {
@@ -114,11 +114,35 @@ foreach ($term in @(
   "__POSTGRES_EXPORTER_SHA256__",
   'Replace("__POSTGRES_EXPORTER_URL__", $postgresExporterUrl)',
   'Replace("__POSTGRES_EXPORTER_SHA256__", $postgresExporterSha256)',
+  "mktemp -d /tmp/jmx-exporter.XXXXXX",
+  'trap ''rm -rf "$jmx_tmp" "$dropin_backup"'' EXIT HUP INT TERM',
+  "__JMX_EXPORTER_URL__",
+  "__JMX_EXPORTER_SHA256__",
+  'Replace("__JMX_EXPORTER_URL__", $jmxExporterUrl)',
+  'Replace("__JMX_EXPORTER_SHA256__", $jmxExporterSha256)',
+  "/etc/monitoring/jmx-exporter.yml",
+  "jmx=staged-awaiting-apply",
+  "jmx=ready",
   "monitoring-jmx.conf",
-  "JAVA_TOOL_OPTIONS"
+  "JAVA_TOOL_OPTIONS",
+  "tcp dport 9404",
+  "e-SUS-PEC.service",
+  "/opt/e-SUS/jre/current/bin/java -version",
+  "grep -q '17\.'",
+  "^jvm_(memory|gc|threads)_"
 )) {
   if ($activeApplicationExporterProvisioner -notmatch [regex]::Escape($term)) {
     throw "Missing application exporter provisioner term: $term"
+  }
+}
+
+foreach ($jmxFirewallTerm in @(
+  'iifname "lo" tcp dport 9404 accept',
+  'ip saddr "$monitoring_core_host" tcp dport 9404 accept',
+  'tcp dport 9404 reject'
+)) {
+  if ($activeApplicationExporterProvisioner -notmatch [regex]::Escape($jmxFirewallTerm)) {
+    throw "Missing JMX firewall rule term: $jmxFirewallTerm"
   }
 }
 
@@ -148,6 +172,7 @@ $forbiddenApplicationExporterPatterns = @{
   SUPERUSER = '(?i)(?<!NO)\bSUPERUSER\b'
   "ALTER SYSTEM" = '(?i)\bALTER\s+SYSTEM\b'
   "listen_addresses = '*'" = "(?i)\blisten_addresses\s*=\s*['""]\*['""]"
+  "standalone.sh mutation" = '(?im)\b(?:sed|perl|awk|tee|cat|install|cp|mv)\b[^\r\n]*(?:/opt/e-SUS/webserver/)?standalone\.sh\b'
 }
 
 foreach ($forbiddenTerm in $forbiddenApplicationExporterPatterns.GetEnumerator()) {
