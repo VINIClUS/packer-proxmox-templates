@@ -68,9 +68,9 @@ targets CT `133 esus-pec-lxc-5437` by default and installs Alloy plus exporter
 services.
 
 Application exporters are opt-in because they create a database role and, for
-JMX, update the e-SUS PEC Java service environment. After the monitoring core
-already exists, apply the core config, install the PostgreSQL and JMX exporters,
-then publish dashboards:
+JMX, update the e-SUS PEC Java service start command through a managed
+systemd drop-in. After the monitoring core already exists, apply the core
+config, install the PostgreSQL and JMX exporters, then publish dashboards:
 
 ```powershell
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Provision-MonitoringCore.ps1 -SkipCreate
@@ -81,8 +81,9 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Publi
 `-ConfigurePostgresExporter` installs `prometheus-postgres-exporter` on CT
 `133` and exposes metrics on TCP `9187`. `-ConfigureJmxExporter` stages the JMX
 agent and exposes JVM metrics on TCP `9404`. `-ApplyJavaServiceChange` writes
-the managed `monitoring-jmx.conf` drop-in and restarts `e-SUS-PEC.service`; omit
-that flag when only staging/reviewing JMX artifacts.
+the managed `monitoring-jmx.conf` drop-in, points `ExecStart` to
+`/opt/monitoring/run-esus-pec-with-jmx.sh`, and restarts
+`e-SUS-PEC.service`; omit that flag when only staging/reviewing JMX artifacts.
 
 The target-side firewall must remain restricted to the Prometheus host:
 loopback is accepted, the monitoring core host is accepted, and other traffic to
@@ -123,8 +124,11 @@ The managed folder is `e-SUS PEC Monitoring` with folder UID
 - `e-SUS PEC CT 133`
 - `Logs and Diagnostics`
 
-Datasource UIDs are fixed in provisioning as `prometheus` and `loki`, matching
-Grafana's supported datasource UID provisioning model.
+Datasource UIDs are fixed as `prometheus` and `loki`. The publisher manages
+them through the Grafana API before writing dashboards. File-based datasource
+provisioning is intentionally not pushed by `Provision-MonitoringCore.ps1`
+because Grafana `13.0.2` returned `Datasource provisioning error: data source
+not found` during service startup in this CT.
 
 ## Infisical Grafana Env Sync
 
@@ -252,12 +256,12 @@ rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'nginx -t && systemctl re
 ```
 
 Rollback the application exporters separately. Stop and disable the PostgreSQL
-exporter and its firewall unit, remove the JMX service drop-in, reload systemd,
-and restart e-SUS PEC:
+exporter and its firewall unit, remove the JMX service drop-in and wrapper,
+reload systemd, and restart e-SUS PEC:
 
 ```powershell
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl disable --now prometheus-postgres-exporter prometheus-postgres-exporter-firewall 2>/dev/null || true'"
-rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'rm -f /etc/systemd/system/e-SUS-PEC.service.d/monitoring-jmx.conf; systemctl daemon-reload; systemctl restart e-SUS-PEC.service'"
+rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'rm -f /etc/systemd/system/e-SUS-PEC.service.d/monitoring-jmx.conf /opt/monitoring/run-esus-pec-with-jmx.sh; systemctl daemon-reload; systemctl restart e-SUS-PEC.service'"
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl is-active prometheus-postgres-exporter 2>/dev/null || true; systemctl is-active e-SUS-PEC.service'"
 ```
 
@@ -359,3 +363,32 @@ Grafana dashboard connection repair evidence collected on 2026-06-14:
 - Loki labels for CT `133` exist with `host="esus-pec-lxc-5437"`, but log
   panels can still be empty when there are no matching logs in the selected
   time range.
+
+Application exporter evidence collected on 2026-06-20:
+
+- `Install-MonitoringTargetAgent.ps1 -ConfigurePostgresExporter
+  -ConfigureJmxExporter -ApplyJavaServiceChange`: completed with
+  `postgres_exporter=ready` and `jmx=ready`.
+- `e-SUS-PEC.service` and `prometheus-postgres-exporter`: `active` after the
+  JMX wrapper change.
+- PEC HTTP endpoint: `http://127.0.0.1:8080/` returned HTTP `200` inside CT
+  `133`.
+- PostgreSQL exporter: `http://127.0.0.1:9187/metrics` exposed `pg_up 1`.
+- JMX exporter: `http://127.0.0.1:9404/metrics` exposed representative JVM
+  metrics including `jvm_memory_bytes_used`, `jvm_gc_collection_seconds_count`,
+  `jvm_threads_current`, `jvm_classes_loaded_total`, and
+  `process_cpu_seconds_total`.
+- `Provision-MonitoringCore.ps1 -SkipCreate`: completed health checks with
+  `prometheus`, `grafana-server`, `loki`, and `alloy` active; Prometheus,
+  Grafana, and Loki readiness returned `ready`.
+- Grafana dashboards published through the API with datasource UIDs
+  `prometheus` and `loki`; dashboard count remained `4`, Grafana database
+  health was `ok`, and folder UID was `esus-pec-monitoring`.
+- Prometheus query
+  `up{instance="192.168.1.209:9187"}` returned value `1`.
+- Prometheus query
+  `up{instance="192.168.1.209:9404"}` returned value `1`.
+- Prometheus query `pg_up{host="esus-pec-lxc-5437"}` returned value `1`.
+- Prometheus query
+  `jvm_memory_bytes_used{host="esus-pec-lxc-5437",area="heap"}` returned a
+  non-empty vector.

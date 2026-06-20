@@ -126,7 +126,7 @@ foreach ($term in @(
   'Replace("__POSTGRES_EXPORTER_URL__", $postgresExporterUrl)',
   'Replace("__POSTGRES_EXPORTER_SHA256__", $postgresExporterSha256)',
   "mktemp -d /tmp/jmx-exporter.XXXXXX",
-  'trap ''rm -rf "$jmx_tmp" "$dropin_backup"'' EXIT HUP INT TERM',
+  'trap ''rm -rf "$jmx_tmp" "$dropin_backup" "$wrapper_backup"'' EXIT HUP INT TERM',
   "__JMX_EXPORTER_URL__",
   "__JMX_EXPORTER_SHA256__",
   'Replace("__JMX_EXPORTER_URL__", $jmxExporterUrl)',
@@ -135,7 +135,8 @@ foreach ($term in @(
   "jmx=staged-awaiting-apply",
   "jmx=ready",
   "monitoring-jmx.conf",
-  "JAVA_TOOL_OPTIONS",
+  "/opt/monitoring/run-esus-pec-with-jmx.sh",
+  "ExecStart=/opt/monitoring/run-esus-pec-with-jmx.sh",
   "tcp dport 9404",
   "e-SUS-PEC.service",
   "/opt/e-SUS/jre/current/bin/java -version",
@@ -290,7 +291,7 @@ foreach ($targetSummaryTerm in @(
 }
 
 $prometheusCandidateIndex =
-  $coreProvisioner.IndexOf('promtool check config "$candidate"')
+  $coreProvisioner.IndexOf('/usr/local/bin/promtool check config "$candidate"')
 $prometheusNextIndex =
   $coreProvisioner.IndexOf('/etc/prometheus/prometheus.yml.next.$$')
 $prometheusMoveIndex =
@@ -509,7 +510,7 @@ foreach ($term in @(
   'rate(jvm_gc_collection_seconds_count{host="esus-pec-lxc-5437"}[5m])',
   'jvm_threads_current{host="esus-pec-lxc-5437"}',
   'jvm_threads_daemon{host="esus-pec-lxc-5437"}',
-  'jvm_classes_loaded{host="esus-pec-lxc-5437"}',
+  'jvm_classes_loaded_total{host="esus-pec-lxc-5437"}',
   'process_cpu_seconds_total{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}',
   '(process_start_time_seconds{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}) * 1000'
 )) {
@@ -563,6 +564,27 @@ foreach ($requiredDownloadHardeningTerm in @("download_url()", "curl -4", "--ret
 foreach ($requiredSshWrapperTerm in @('$nativeErrorActionPreference', '$ErrorActionPreference = "Continue"', '$LASTEXITCODE')) {
   if ($coreProvisioner -notmatch [regex]::Escape($requiredSshWrapperTerm)) {
     throw "Monitoring core provisioner SSH wrapper must safely capture native stderr and check exit code: $requiredSshWrapperTerm"
+  }
+}
+
+foreach ($sshScriptTransport in @(
+  @{ Name = "core provisioner"; Content = $coreProvisioner },
+  @{ Name = "target agent"; Content = $targetAgentProvisioner },
+  @{ Name = "application exporter"; Content = $applicationExporterProvisioner }
+)) {
+  foreach ($requiredTransportTerm in @("Copy-TextToProxmoxTempFile", '$normalizedText = $Text -replace "`r`n", "`n" -replace "`r", "`n"', "mktemp /root/", "scp -i", "bash -se <", "rm -f `$remoteTempQuoted")) {
+    if ($sshScriptTransport.Content -notmatch [regex]::Escape($requiredTransportTerm)) {
+      throw "Monitoring $($sshScriptTransport.Name) must execute remote scripts via temporary Proxmox host files: $requiredTransportTerm"
+    }
+  }
+
+  foreach ($forbiddenTransportPattern in @(
+    'echo\s+\$encoded\s*\|\s*base64\s+-d\s*\|\s*bash',
+    'bash\s+-lc\s+''echo\s+\$encoded\s*\|\s*base64\s+-d\s*\|\s*bash'
+  )) {
+    if ($sshScriptTransport.Content -match $forbiddenTransportPattern) {
+      throw "Monitoring $($sshScriptTransport.Name) must not inline encoded remote scripts in SSH command arguments."
+    }
   }
 }
 

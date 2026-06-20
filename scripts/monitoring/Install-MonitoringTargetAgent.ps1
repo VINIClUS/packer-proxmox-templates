@@ -32,7 +32,10 @@ function ConvertTo-ShellSingleQuoted {
 }
 
 function Invoke-ProxmoxSsh {
-  param([Parameter(Mandatory = $true)][string]$Command)
+  param(
+    [Parameter(Mandatory = $true)][string]$Command,
+    [string]$Label = "proxmox-ssh"
+  )
 
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -46,23 +49,85 @@ function Invoke-ProxmoxSsh {
 
   if ($exitCode -ne 0) {
     $output
-    throw "Remote Proxmox command failed with exit code $exitCode."
+    throw "Remote Proxmox command '$Label' failed with exit code $exitCode."
   }
   return ($output -join "`n")
 }
 
-function Invoke-ProxmoxBash {
-  param([Parameter(Mandatory = $true)][string]$Script)
+function Copy-TextToProxmoxTempFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Text,
+    [string]$Prefix = "codex-monitoring-script"
+  )
 
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
-  Invoke-ProxmoxSsh -Command "echo $encoded | base64 -d | bash -se"
+  $localTemp = [System.IO.Path]::GetTempFileName()
+  $remoteTemp = $null
+  try {
+    $normalizedText = $Text -replace "`r`n", "`n" -replace "`r", "`n"
+    [System.IO.File]::WriteAllText($localTemp, $normalizedText, [System.Text.UTF8Encoding]::new($false))
+    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/$Prefix.XXXXXXXXXX" -Label "remote-tempfile").Trim()
+    $scpTarget = "{0}:{1}" -f $script:SshTarget, $remoteTemp
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      $scpOutput = & scp -i $script:SshKey -P $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $localTemp $scpTarget 2>&1 |
+        ForEach-Object { $_.ToString() }
+      $scpExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($scpExitCode -ne 0) {
+      $scpOutput
+      throw "SCP transfer for remote script failed with exit code $scpExitCode."
+    }
+
+    return $remoteTemp
+  } catch {
+    if (-not [string]::IsNullOrWhiteSpace($remoteTemp)) {
+      $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+      try {
+        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "remote-tempfile-cleanup" | Out-Null
+      } catch {
+      }
+    }
+    throw
+  } finally {
+    if (Test-Path -LiteralPath $localTemp -PathType Leaf) {
+      Remove-Item -LiteralPath $localTemp -Force
+    }
+  }
+}
+
+function Invoke-ProxmoxBash {
+  param(
+    [Parameter(Mandatory = $true)][string]$Script,
+    [string]$Label = "proxmox-bash"
+  )
+
+  $remoteTemp = Copy-TextToProxmoxTempFile -Text $Script
+  $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+  try {
+    Invoke-ProxmoxSsh -Command "bash $remoteTempQuoted" -Label $Label
+  } finally {
+    Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "$Label-cleanup" | Out-Null
+  }
 }
 
 function Invoke-ContainerBash {
-  param([Parameter(Mandatory = $true)][string]$Script)
+  param(
+    [Parameter(Mandatory = $true)][string]$Script,
+    [string]$Label = "container-bash"
+  )
 
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
-  Invoke-ProxmoxSsh -Command "pct exec $TargetCtid -- bash -lc 'echo $encoded | base64 -d | bash -se'"
+  $remoteTemp = Copy-TextToProxmoxTempFile -Text $Script
+  $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+  try {
+    Invoke-ProxmoxSsh -Command "pct exec $TargetCtid -- bash -se < $remoteTempQuoted" -Label $Label
+  } finally {
+    Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "$Label-cleanup" | Out-Null
+  }
 }
 
 function Push-ContainerFile {
@@ -95,7 +160,7 @@ pct exec $TargetCtid -- mkdir -p $remoteDir
 pct push $TargetCtid "`$payload_file" $remotePath --perms $remoteMode >/dev/null
 pct exec $TargetCtid -- chown $remoteOwner $remotePath
 "@
-  Invoke-ProxmoxBash -Script $pushScript | Out-Null
+  Invoke-ProxmoxBash -Script $pushScript -Label "push-container-file:$Path" | Out-Null
 }
 
 function Get-TemplateContent {
@@ -152,42 +217,48 @@ if (-not (Test-Path -LiteralPath $script:SshKey -PathType Leaf)) {
 
 $script:SshTarget = "$sshUser@$sshHost"
 
-$ctExists = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid >/dev/null 2>&1; echo `$?").Trim() -eq "0"
+$ctExists = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid >/dev/null 2>&1; echo `$?" -Label "target-exists").Trim() -eq "0"
 if (-not $ctExists) {
   throw "CTID $TargetCtid ($TargetName) does not exist on the Proxmox host."
 }
 
-$ctConfig = Invoke-ProxmoxSsh -Command "pct config $TargetCtid"
+$ctConfig = Invoke-ProxmoxSsh -Command "pct config $TargetCtid" -Label "target-config"
 Assert-TargetContainerIdentity -ConfigText $ctConfig
 
-$ctStatus = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid").Trim()
+$ctStatus = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid" -Label "target-status").Trim()
 if ($ctStatus -notmatch "status:\s+running") {
   throw "CTID $TargetCtid ($TargetName) is not running. Start and verify the container manually before installing monitoring agents; this script will not mutate CT power state."
 }
 
-$runtimeHostname = (Invoke-ContainerBash -Script "hostname -s").Trim()
+$runtimeHostname = (Invoke-ContainerBash -Script "hostname -s" -Label "target-runtime-hostname").Trim()
 if ($runtimeHostname -ne $TargetName) {
   throw "CTID $TargetCtid runtime hostname is '$runtimeHostname', expected '$TargetName'. Refusing to continue."
 }
 
-$installOutput = Invoke-ContainerBash -Script @'
+$installOutput = Invoke-ContainerBash -Label "base-packages" -Script @'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 
+echo "[monitoring-target] base apt update" >&2
 apt-get update -qq
+echo "[monitoring-target] base package install" >&2
 apt-get install -y -qq ca-certificates curl gpg wget apt-transport-https systemd prometheus-node-exporter >/dev/null
 
+echo "[monitoring-target] grafana apt key" >&2
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://apt.grafana.com/gpg-full.key -o /etc/apt/keyrings/grafana.asc
 chmod 0644 /etc/apt/keyrings/grafana.asc
 cat >/etc/apt/sources.list.d/grafana.list <<'APT'
 deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main
 APT
+echo "[monitoring-target] grafana apt update" >&2
 apt-get update -qq
+echo "[monitoring-target] alloy package install" >&2
 apt-get install -y -qq alloy prometheus-node-exporter >/dev/null
 
+echo "[monitoring-target] base services restart" >&2
 install -d -o root -g alloy -m 0750 /etc/alloy
 systemctl daemon-reload
 systemctl enable alloy prometheus-node-exporter >/dev/null
@@ -202,12 +273,12 @@ $alloyConfig = (Get-TemplateContent -Name "alloy-linux-target.alloy").
   Replace('ctid     = "133"', ('ctid     = "{0}"' -f $TargetCtid))
 
 Push-ContainerFile -Path "/etc/alloy/config.alloy" -Content $alloyConfig -Owner "root" -Group "alloy" -Mode "0640"
-Invoke-ContainerBash -Script @'
+Invoke-ContainerBash -Label "restart-alloy" -Script @'
 set -euo pipefail
 systemctl restart alloy
 '@ | Out-Null
 
-$nginxOutput = Invoke-ContainerBash -Script @'
+$nginxOutput = Invoke-ContainerBash -Label "nginx-exporter" -Script @'
 set -euo pipefail
 if ! command -v nginx >/dev/null 2>&1; then
   printf 'nginx=absent\n'
@@ -392,7 +463,7 @@ printf 'nginx_exporter=active\n'
 '@
 $nginxState = Read-KeyValueOutput -Output $nginxOutput
 
-$healthOutput = Invoke-ContainerBash -Script @'
+$healthOutput = Invoke-ContainerBash -Label "target-health-check" -Script @'
 set -euo pipefail
 systemctl is-active alloy prometheus-node-exporter >/dev/null
 curl -fsS http://127.0.0.1:9100/metrics >/dev/null

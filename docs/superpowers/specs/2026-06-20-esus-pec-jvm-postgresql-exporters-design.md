@@ -63,14 +63,21 @@ Create a managed systemd drop-in:
 
 `/etc/systemd/system/e-SUS-PEC.service.d/monitoring-jmx.conf`
 
-The drop-in sets `JAVA_TOOL_OPTIONS` to load:
+The drop-in clears the vendor `ExecStart` and points the service to:
+
+`/opt/monitoring/run-esus-pec-with-jmx.sh`
+
+The wrapper preserves the PEC certificate import step without JMX and launches
+the final PEC JVM with the Java agent before `-jar`:
 
 - `/opt/monitoring/jmx_prometheus_javaagent.jar`
 - port `9404`
 - `/etc/monitoring/jmx-exporter.yml`
 
-The JVM automatically consumes `JAVA_TOOL_OPTIONS`, so the existing launch
-script does not need modification.
+The existing vendor unit and `/opt/e-SUS/webserver/standalone.sh` are not
+edited. This avoids depending on `JAVA_TOOL_OPTIONS`, which was consumed by
+helper JVM invocations before the application JVM and did not expose the
+desired metrics reliably.
 
 ## Artifact Integrity
 
@@ -82,6 +89,7 @@ Installed paths:
 
 - `/usr/local/bin/postgres_exporter`
 - `/opt/monitoring/jmx_prometheus_javaagent.jar`
+- `/opt/monitoring/run-esus-pec-with-jmx.sh`
 - `/etc/monitoring/jmx-exporter.yml`
 - `/etc/monitoring/postgres-exporter.env`
 
@@ -175,7 +183,7 @@ separate job names.
 3. Create/update the PostgreSQL role and compatibility objects idempotently.
 4. Install and start `postgres_exporter`.
 5. Download and verify the JMX agent and write its configuration.
-6. Create the systemd drop-in.
+6. Create the managed wrapper and systemd `ExecStart` drop-in.
 7. Restart `e-SUS-PEC.service`.
 8. Wait for the PEC endpoint on `8080` and JMX metrics on `9404`.
 9. Update and validate Prometheus configuration.
@@ -218,7 +226,7 @@ Static validation must prove:
 - pinned exporter versions and checksums exist
 - PostgreSQL 9.6 compatibility SQL is present
 - password values are absent from tracked files
-- the JMX systemd drop-in is managed and reversible
+- the JMX systemd drop-in and wrapper are managed and reversible
 - Prometheus includes `9187` and `9404`
 - Grafana includes PostgreSQL and JVM panels
 

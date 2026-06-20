@@ -128,6 +128,52 @@ function Ensure-GrafanaFolder {
   }
 }
 
+function Ensure-GrafanaDatasource {
+  param(
+    [string]$Uid,
+    [string]$Name,
+    [string]$Type,
+    [string]$Url,
+    [bool]$IsDefault,
+    [hashtable]$Headers,
+    [string]$GrafanaUrl
+  )
+
+  $body = @{
+    uid = $Uid
+    name = $Name
+    type = $Type
+    access = "proxy"
+    url = $Url
+    isDefault = $IsDefault
+    editable = $true
+  }
+
+  try {
+    $null = Invoke-GrafanaApi -Method Get -Path "/api/datasources/uid/$Uid" -Headers $Headers -GrafanaUrl $GrafanaUrl
+    $null = Invoke-GrafanaApi -Method Put -Path "/api/datasources/uid/$Uid" -Headers $Headers -GrafanaUrl $GrafanaUrl -Body $body
+    return "updated"
+  } catch {
+    if (-not $_.Exception.Response -or $_.Exception.Response.StatusCode.value__ -ne 404) {
+      throw
+    }
+  }
+
+  try {
+    $null = Invoke-GrafanaApi -Method Post -Path "/api/datasources" -Headers $Headers -GrafanaUrl $GrafanaUrl -Body $body
+  } catch {
+    if (-not $_.Exception.Response -or $_.Exception.Response.StatusCode.value__ -ne 409) {
+      throw
+    }
+
+    $encodedName = [uri]::EscapeDataString($Name)
+    $null = Invoke-GrafanaApi -Method Delete -Path "/api/datasources/name/$encodedName" -Headers $Headers -GrafanaUrl $GrafanaUrl
+    $null = Invoke-GrafanaApi -Method Post -Path "/api/datasources" -Headers $Headers -GrafanaUrl $GrafanaUrl -Body $body
+    return "recreated"
+  }
+  return "created"
+}
+
 $envValues = Get-EnvFileValues -Path $EnvFile
 $grafanaUrl = Get-ConfigValue -Values $envValues -Name "grafana_url" -Default $DefaultGrafanaUrl
 $grafanaCredential = Get-ConfigValue -Values $envValues -Name "grafana_token"
@@ -146,6 +192,22 @@ $headers = @{
 }
 
 $health = Invoke-GrafanaApi -Method Get -Path "/api/health" -Headers $headers -GrafanaUrl $grafanaUrl
+$prometheusDatasourceState = Ensure-GrafanaDatasource `
+  -Uid "prometheus" `
+  -Name "Prometheus" `
+  -Type "prometheus" `
+  -Url "http://127.0.0.1:9090" `
+  -IsDefault $true `
+  -Headers $headers `
+  -GrafanaUrl $grafanaUrl
+$lokiDatasourceState = Ensure-GrafanaDatasource `
+  -Uid "loki" `
+  -Name "Loki" `
+  -Type "loki" `
+  -Url "http://127.0.0.1:3100" `
+  -IsDefault $false `
+  -Headers $headers `
+  -GrafanaUrl $grafanaUrl
 $folderState = Ensure-GrafanaFolder -Uid $FolderUid -Title $FolderTitle -Headers $headers -GrafanaUrl $grafanaUrl
 
 $published = New-Object System.Collections.Generic.List[object]
@@ -177,6 +239,10 @@ foreach ($file in Get-ChildItem -LiteralPath $DashboardDirectory -Filter "*.json
 $report = @{
   grafanaUrl = $grafanaUrl
   database = [string]$health.database
+  datasources = [ordered]@{
+    prometheus = $prometheusDatasourceState
+    loki = $lokiDatasourceState
+  }
   folderUid = $FolderUid
   folderState = $folderState
   dashboardCount = [int]$published.Count

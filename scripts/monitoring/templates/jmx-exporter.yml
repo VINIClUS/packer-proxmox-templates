@@ -1,6 +1,31 @@
 lowercaseOutputName: true
 lowercaseOutputLabelNames: true
-excludeObjectNames:
-  - "java.lang:type=ClassLoading"
 rules:
-  - pattern: ".*"
+  - pattern: 'java.lang<type=Memory><HeapMemoryUsage>(used|committed|max|init)'
+    name: jvm_memory_bytes_$1
+    type: GAUGE
+    labels:
+      area: heap
+      id: heap
+  - pattern: 'java.lang<type=Memory><NonHeapMemoryUsage>(used|committed|max|init)'
+    name: jvm_memory_bytes_$1
+    type: GAUGE
+    labels:
+      area: nonheap
+      id: nonheap
+  - pattern: 'java.lang<type=MemoryPool,name=(.+)><Usage>(used|committed|max|init)'
+    name: jvm_memory_pool_bytes_$2
+    type: GAUGE
+    labels:
+      pool: "$1"
+  - pattern: 'java.lang<type=GarbageCollector,name=(.+)><CollectionCount>'
+    name: jvm_gc_collection_seconds_count
+    type: COUNTER
+    labels:
+      gc: "$1"
+  - pattern: 'java.lang<type=GarbageCollector,name=(.+)><CollectionTime>'
+    name: jvm_gc_collection_seconds_sum
+    type: COUNTER
+    valueFactor: 0.001
+    labels:
+      gc: "$1"

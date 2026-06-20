@@ -47,7 +47,8 @@ function ConvertTo-ShellSingleQuoted {
 
 function Invoke-ProxmoxSsh {
   param(
-    [Parameter(Mandatory = $true)][string]$Command
+    [Parameter(Mandatory = $true)][string]$Command,
+    [string]$Label = "proxmox-ssh"
   )
 
   $nativeErrorActionPreference = $ErrorActionPreference
@@ -62,39 +63,85 @@ function Invoke-ProxmoxSsh {
 
   if ($exitCode -ne 0) {
     $output
-    throw "Remote Proxmox command failed with exit code $exitCode."
+    throw "Remote Proxmox command '$Label' failed with exit code $exitCode."
   }
   return ($output -join "`n")
 }
 
-function Invoke-ProxmoxBash {
-  param([Parameter(Mandatory = $true)][string]$Script)
+function Copy-TextToProxmoxTempFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Text,
+    [string]$Prefix = "codex-monitoring-script"
+  )
 
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
-  $nativeErrorActionPreference = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
+  $localTemp = [System.IO.Path]::GetTempFileName()
+  $remoteTemp = $null
   try {
-    $output = & ssh -i $script:SshKey -p $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $script:SshTarget "echo $encoded | base64 -d | bash -se" 2>&1 |
-      ForEach-Object { "$_" }
-    $exitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $nativeErrorActionPreference
-  }
+    $normalizedText = $Text -replace "`r`n", "`n" -replace "`r", "`n"
+    [System.IO.File]::WriteAllText($localTemp, $normalizedText, [System.Text.UTF8Encoding]::new($false))
+    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/$Prefix.XXXXXXXXXX" -Label "remote-tempfile").Trim()
+    $scpTarget = "{0}:{1}" -f $script:SshTarget, $remoteTemp
 
-  if ($exitCode -ne 0) {
-    $output
-    throw "Remote Proxmox bash script failed with exit code $exitCode."
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      $scpOutput = & scp -i $script:SshKey -P $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $localTemp $scpTarget 2>&1 |
+        ForEach-Object { $_.ToString() }
+      $scpExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($scpExitCode -ne 0) {
+      $scpOutput
+      throw "SCP transfer for remote script failed with exit code $scpExitCode."
+    }
+
+    return $remoteTemp
+  } catch {
+    if (-not [string]::IsNullOrWhiteSpace($remoteTemp)) {
+      $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+      try {
+        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "remote-tempfile-cleanup" | Out-Null
+      } catch {
+      }
+    }
+    throw
+  } finally {
+    if (Test-Path -LiteralPath $localTemp -PathType Leaf) {
+      Remove-Item -LiteralPath $localTemp -Force
+    }
   }
-  return ($output -join "`n")
+}
+
+function Invoke-ProxmoxBash {
+  param(
+    [Parameter(Mandatory = $true)][string]$Script,
+    [string]$Label = "proxmox-bash"
+  )
+
+  $remoteTemp = Copy-TextToProxmoxTempFile -Text $Script
+  $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+  try {
+    Invoke-ProxmoxSsh -Command "bash $remoteTempQuoted" -Label $Label
+  } finally {
+    Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "$Label-cleanup" | Out-Null
+  }
 }
 
 function Invoke-ContainerBash {
   param(
-    [Parameter(Mandatory = $true)][string]$Script
+    [Parameter(Mandatory = $true)][string]$Script,
+    [string]$Label = "container-bash"
   )
 
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
-  Invoke-ProxmoxSsh -Command "pct exec $Ctid -- bash -lc 'echo $encoded | base64 -d | bash -se'"
+  $remoteTemp = Copy-TextToProxmoxTempFile -Text $Script
+  $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+  try {
+    Invoke-ProxmoxSsh -Command "pct exec $Ctid -- bash -se < $remoteTempQuoted" -Label $Label
+  } finally {
+    Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "$Label-cleanup" | Out-Null
+  }
 }
 
 function Push-ContainerFile {
@@ -127,7 +174,7 @@ pct exec $Ctid -- mkdir -p $remoteDir
 pct push $Ctid "`$payload_file" $remotePath --perms $remoteMode >/dev/null
 pct exec $Ctid -- chown $remoteOwner $remotePath
 "@
-  Invoke-ProxmoxBash -Script $pushScript | Out-Null
+  Invoke-ProxmoxBash -Script $pushScript -Label "push-container-file:$Path" | Out-Null
 }
 
 function Assert-MonitoringContainerConfig {
@@ -161,7 +208,7 @@ function Get-TemplateContent {
 }
 
 function Get-ContainerServiceStates {
-  $statusOutput = Invoke-ContainerBash -Script @'
+  $statusOutput = Invoke-ContainerBash -Label "core-service-states" -Script @'
 set -euo pipefail
 for service in prometheus grafana-server loki alloy; do
   printf '%s=%s\n' "$service" "$(systemctl is-active "$service" 2>/dev/null || true)"
@@ -186,7 +233,7 @@ function Test-ContainerReadiness {
     }
   }
 
-  $healthOutput = Invoke-ContainerBash -Script @'
+  $healthOutput = Invoke-ContainerBash -Label "core-readiness" -Script @'
 set -euo pipefail
 
 wait_service_active() {
@@ -248,9 +295,9 @@ if (-not (Test-Path -LiteralPath $script:SshKey -PathType Leaf)) {
 $script:SshTarget = "$sshUser@$sshHost"
 $ipAddress = ($IpCidr -split "/", 2)[0]
 
-$ctExists = (Invoke-ProxmoxSsh -Command "pct status $Ctid >/dev/null 2>&1; echo `$?").Trim() -eq "0"
+$ctExists = (Invoke-ProxmoxSsh -Command "pct status $Ctid >/dev/null 2>&1; echo `$?" -Label "core-exists").Trim() -eq "0"
 if ($ctExists) {
-  $ctConfig = Invoke-ProxmoxSsh -Command "pct config $Ctid"
+  $ctConfig = Invoke-ProxmoxSsh -Command "pct config $Ctid" -Label "core-config"
   Assert-MonitoringContainerConfig -ConfigText $ctConfig
 } else {
   if ($SkipCreate) {
@@ -270,12 +317,12 @@ pct create $Ctid $(ConvertTo-ShellSingleQuoted -Value $Template) \
   --unprivileged 1 --features nesting=1,keyctl=1 --ostype debian --onboot 1 \
   --description $(ConvertTo-ShellSingleQuoted -Value $description)
 "@
-  Invoke-ProxmoxBash -Script $createScript | Out-Null
+  Invoke-ProxmoxBash -Script $createScript -Label "core-create" | Out-Null
 }
 
-$ctStatus = (Invoke-ProxmoxSsh -Command "pct status $Ctid").Trim()
+$ctStatus = (Invoke-ProxmoxSsh -Command "pct status $Ctid" -Label "core-status").Trim()
 if ($ctStatus -notmatch "status:\s+running") {
-  Invoke-ProxmoxSsh -Command "pct start $Ctid >/dev/null" | Out-Null
+  Invoke-ProxmoxSsh -Command "pct start $Ctid >/dev/null" -Label "core-start" | Out-Null
   Start-Sleep -Seconds 5
 }
 
@@ -424,10 +471,12 @@ UNIT
 
 install -d -o root -g alloy -m 0750 /etc/alloy
 install -d -o root -g grafana -m 0750 /etc/grafana/provisioning/datasources
+find /etc/grafana/provisioning -name sample.yaml -type f -delete
+rm -f /etc/grafana/provisioning/datasources/datasources.yml
 
 systemctl daemon-reload
 "@
-Invoke-ContainerBash -Script $installScript | Out-Null
+Invoke-ContainerBash -Script $installScript -Label "core-install" | Out-Null
 
 $prometheusConfig = (Get-TemplateContent -Name "prometheus.yml").
   Replace("ESUS_PEC_LXC_TARGET_METRICS_HOST", $InitialTargetMetricsHost).
@@ -437,10 +486,9 @@ $lokiConfig = Get-TemplateContent -Name "loki.yml"
 $alloyConfig = (Get-TemplateContent -Name "alloy-core.alloy").
   Replace("monitoring-core", $Hostname).
   Replace('ctid = "190"', ('ctid = "{0}"' -f $Ctid))
-$grafanaDatasourceConfig = Get-TemplateContent -Name "grafana-datasources.yml"
 
 Push-ContainerFile -Path "/etc/prometheus/prometheus.yml.candidate" -Content $prometheusConfig -Owner "root" -Group "root" -Mode "0644"
-Invoke-ContainerBash -Script @'
+Invoke-ContainerBash -Label "prometheus-config-promote" -Script @'
 set -euo pipefail
 candidate="/etc/prometheus/prometheus.yml.candidate"
 active="/etc/prometheus/prometheus.yml"
@@ -449,7 +497,7 @@ cleanup_prometheus_candidate() {
   rm -f "$candidate" "$next_config"
 }
 trap cleanup_prometheus_candidate EXIT HUP INT TERM
-promtool check config "$candidate"
+/usr/local/bin/promtool check config "$candidate"
 install -o prometheus -g prometheus -m 0644 "$candidate" "$next_config"
 mv -f "$next_config" "$active"
 cleanup_prometheus_candidate
@@ -458,9 +506,8 @@ trap - EXIT HUP INT TERM
 
 Push-ContainerFile -Path "/etc/loki/loki.yml" -Content $lokiConfig -Owner "loki" -Group "loki" -Mode "0644"
 Push-ContainerFile -Path "/etc/alloy/config.alloy" -Content $alloyConfig -Owner "root" -Group "alloy" -Mode "0640"
-Push-ContainerFile -Path "/etc/grafana/provisioning/datasources/datasources.yml" -Content $grafanaDatasourceConfig -Owner "root" -Group "grafana" -Mode "0640"
 
-Invoke-ContainerBash -Script @'
+Invoke-ContainerBash -Label "core-services-restart" -Script @'
 set -euo pipefail
 systemctl daemon-reload
 systemctl enable prometheus grafana-server loki alloy >/dev/null

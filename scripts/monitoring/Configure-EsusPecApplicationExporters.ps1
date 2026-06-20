@@ -47,7 +47,10 @@ function ConvertTo-ShellSingleQuoted {
 }
 
 function Invoke-ProxmoxSsh {
-  param([Parameter(Mandatory = $true)][string]$Command)
+  param(
+    [Parameter(Mandatory = $true)][string]$Command,
+    [string]$Label = "proxmox-ssh"
+  )
 
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
@@ -61,23 +64,86 @@ function Invoke-ProxmoxSsh {
 
   if ($exitCode -ne 0) {
     $output
-    throw "Remote Proxmox command failed with exit code $exitCode."
+    throw "Remote Proxmox command '$Label' failed with exit code $exitCode."
   }
   return ($output -join "`n")
 }
 
-function Invoke-ProxmoxBash {
-  param([Parameter(Mandatory = $true)][string]$Script)
+function Copy-TextToProxmoxTempFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Text,
+    [string]$Prefix = "codex-monitoring-script"
+  )
 
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
-  Invoke-ProxmoxSsh -Command "echo $encoded | base64 -d | bash -se"
+  $localTemp = [System.IO.Path]::GetTempFileName()
+  $remoteTemp = $null
+  try {
+    Protect-LocalTemporarySecretFile -Path $localTemp
+    $normalizedText = $Text -replace "`r`n", "`n" -replace "`r", "`n"
+    [System.IO.File]::WriteAllText($localTemp, $normalizedText, [System.Text.UTF8Encoding]::new($false))
+    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/$Prefix.XXXXXXXXXX" -Label "remote-tempfile").Trim()
+    $scpTarget = "{0}:{1}" -f $script:SshTarget, $remoteTemp
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      $scpOutput = & scp -i $script:SshKey -P $script:SshPort -o BatchMode=yes -o StrictHostKeyChecking=accept-new $localTemp $scpTarget 2>&1 |
+        ForEach-Object { $_.ToString() }
+      $scpExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($scpExitCode -ne 0) {
+      $scpOutput
+      throw "SCP transfer for remote script failed with exit code $scpExitCode."
+    }
+
+    return $remoteTemp
+  } catch {
+    if (-not [string]::IsNullOrWhiteSpace($remoteTemp)) {
+      $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+      try {
+        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "remote-tempfile-cleanup" | Out-Null
+      } catch {
+      }
+    }
+    throw
+  } finally {
+    if (Test-Path -LiteralPath $localTemp -PathType Leaf) {
+      Remove-Item -LiteralPath $localTemp -Force
+    }
+  }
+}
+
+function Invoke-ProxmoxBash {
+  param(
+    [Parameter(Mandatory = $true)][string]$Script,
+    [string]$Label = "proxmox-bash"
+  )
+
+  $remoteTemp = Copy-TextToProxmoxTempFile -Text $Script
+  $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+  try {
+    Invoke-ProxmoxSsh -Command "bash $remoteTempQuoted" -Label $Label
+  } finally {
+    Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "$Label-cleanup" | Out-Null
+  }
 }
 
 function Invoke-ContainerBash {
-  param([Parameter(Mandatory = $true)][string]$Script)
+  param(
+    [Parameter(Mandatory = $true)][string]$Script,
+    [string]$Label = "container-bash"
+  )
 
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
-  Invoke-ProxmoxSsh -Command "pct exec $TargetCtid -- bash -lc 'echo $encoded | base64 -d | bash -se'"
+  $remoteTemp = Copy-TextToProxmoxTempFile -Text $Script
+  $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
+  try {
+    Invoke-ProxmoxSsh -Command "pct exec $TargetCtid -- bash -se < $remoteTempQuoted" -Label $Label
+  } finally {
+    Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "$Label-cleanup" | Out-Null
+  }
 }
 
 function Push-ContainerFile {
@@ -110,7 +176,7 @@ pct exec $TargetCtid -- mkdir -p $remoteDir
 pct push $TargetCtid "`$payload_file" $remotePath --perms $remoteMode >/dev/null
 pct exec $TargetCtid -- chown $remoteOwner $remotePath
 "@
-  Invoke-ProxmoxBash -Script $pushScript | Out-Null
+  Invoke-ProxmoxBash -Script $pushScript -Label "push-container-file:$Path" | Out-Null
 }
 
 function Protect-LocalTemporarySecretFile {
@@ -159,7 +225,7 @@ function Push-ContainerSecretFile {
     Protect-LocalTemporarySecretFile -Path $localTemp
     [System.IO.File]::WriteAllText($localTemp, $Content, [System.Text.UTF8Encoding]::new($false))
 
-    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/codex-monitoring-secret.XXXXXXXXXX").Trim()
+    $remoteTemp = (Invoke-ProxmoxSsh -Command "umask 077; mktemp /root/codex-monitoring-secret.XXXXXXXXXX" -Label "secret-remote-tempfile").Trim()
     $scpTarget = "{0}:{1}" -f $script:SshTarget, $remoteTemp
 
     $previousErrorActionPreference = $ErrorActionPreference
@@ -190,12 +256,12 @@ pct exec $TargetCtid -- mkdir -p $remoteDir
 pct push $TargetCtid $remoteTempQuoted $remotePath --perms $remoteMode >/dev/null
 pct exec $TargetCtid -- chown $remoteOwner $remotePath
 "@
-    Invoke-ProxmoxBash -Script $pushScript | Out-Null
+    Invoke-ProxmoxBash -Script $pushScript -Label "push-container-secret:$Path" | Out-Null
   } finally {
     if (-not [string]::IsNullOrWhiteSpace($remoteTemp)) {
       $remoteTempQuoted = ConvertTo-ShellSingleQuoted -Value $remoteTemp
       try {
-        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" | Out-Null
+        Invoke-ProxmoxSsh -Command "rm -f $remoteTempQuoted" -Label "secret-remote-tempfile-cleanup" | Out-Null
       } catch {
         Write-Warning "Failed to remove temporary Proxmox host secret file; remove it manually if present."
       }
@@ -428,26 +494,26 @@ function Assert-TargetContainerIdentity {
 }
 
 function Assert-TargetContainerRuntime {
-  $ctExists = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid >/dev/null 2>&1; echo `$?").Trim() -eq "0"
+  $ctExists = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid >/dev/null 2>&1; echo `$?" -Label "target-exists").Trim() -eq "0"
   if (-not $ctExists) {
     throw "CTID $TargetCtid ($TargetName) does not exist on the Proxmox host."
   }
 
-  $ctConfig = Invoke-ProxmoxSsh -Command "pct config $TargetCtid"
+  $ctConfig = Invoke-ProxmoxSsh -Command "pct config $TargetCtid" -Label "target-config"
   Assert-TargetContainerIdentity -ConfigText $ctConfig
 
-  $ctStatus = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid").Trim()
+  $ctStatus = (Invoke-ProxmoxSsh -Command "pct status $TargetCtid" -Label "target-status").Trim()
   if ($ctStatus -notmatch "status:\s+running") {
     throw "CTID $TargetCtid ($TargetName) is not running. Start and verify the container manually before installing application exporters; this script will not mutate CT power state."
   }
 
-  $runtimeHostname = (Invoke-ContainerBash -Script "hostname -s").Trim()
+  $runtimeHostname = (Invoke-ContainerBash -Script "hostname -s" -Label "target-runtime-hostname").Trim()
   if ($runtimeHostname -ne $TargetName) {
     throw "CTID $TargetCtid runtime hostname is '$runtimeHostname', expected '$TargetName'. Refusing to continue."
   }
 
   $targetMetricsHostShell = ConvertTo-ShellSingleQuoted -Value $TargetMetricsHost
-  Invoke-ContainerBash -Script @"
+  Invoke-ContainerBash -Label "target-metrics-host" -Script @"
 set -euo pipefail
 target_metrics_host=$targetMetricsHostShell
 addresses="`$(hostname -I 2>/dev/null || true)"
@@ -666,10 +732,10 @@ exit 1
     Replace("__POSTGRES_EXPORTER_SHA256__", $postgresExporterSha256)
 
   try {
-    $output = Invoke-ContainerBash -Script $postgresScript
+    $output = Invoke-ContainerBash -Script $postgresScript -Label "postgres-exporter"
   } finally {
     try {
-      Invoke-ContainerBash -Script 'rm -f /etc/monitoring/postgres-bootstrap-password /etc/monitoring/postgres-exporter-bootstrap.sql' | Out-Null
+      Invoke-ContainerBash -Script 'rm -f /etc/monitoring/postgres-bootstrap-password /etc/monitoring/postgres-exporter-bootstrap.sql' -Label "postgres-bootstrap-cleanup" | Out-Null
     } catch {
       Write-Warning "Failed to remove PostgreSQL bootstrap temporary files; remove them manually if present."
     }
@@ -700,9 +766,11 @@ apply_requested="__APPLY_JAVA_SERVICE_CHANGE__"
 monitoring_core_host=__MONITORING_CORE_HOST__
 dropin_dir=/etc/systemd/system/e-SUS-PEC.service.d
 dropin_file="$dropin_dir/monitoring-jmx.conf"
+wrapper_file=/opt/monitoring/run-esus-pec-with-jmx.sh
 jmx_tmp="$(mktemp -d /tmp/jmx-exporter.XXXXXX)"
 dropin_backup="$(mktemp)"
-trap 'rm -rf "$jmx_tmp" "$dropin_backup"' EXIT HUP INT TERM
+wrapper_backup="$(mktemp)"
+trap 'rm -rf "$jmx_tmp" "$dropin_backup" "$wrapper_backup"' EXIT HUP INT TERM
 
 wait_http_ready() {
   url="$1"
@@ -723,9 +791,14 @@ rollback_jmx() {
   else
     rm -f "$dropin_file"
   fi
+  if [ -f "$wrapper_backup" ]; then
+    install -m 0755 "$wrapper_backup" "$wrapper_file"
+  else
+    rm -f "$wrapper_file"
+  fi
   systemctl daemon-reload
   systemctl restart e-SUS-PEC.service
-  wait_http_ready http://127.0.0.1:8080 90
+  wait_http_ready http://127.0.0.1:8080 180
 }
 
 apply_jmx_exporter_firewall() {
@@ -805,10 +878,44 @@ if [ -f "$dropin_file" ]; then
 else
   rm -f "$dropin_backup"
 fi
+if [ -f "$wrapper_file" ]; then
+  cp -p "$wrapper_file" "$wrapper_backup"
+else
+  rm -f "$wrapper_backup"
+fi
+
+cat >"$wrapper_file" <<'WRAPPER'
+#!/bin/sh
+set -eu
+
+JAVA_OPTS="-Xms2048M -Xmx4096M -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=512M -XX:ReservedCodeCacheSize=512M"
+JAVA_OPTS="$JAVA_OPTS -Djava.net.preferIPv4Stack=true"
+JAVA_OPTS="$JAVA_OPTS -Dfile.encoding=UTF-8"
+JAVA_OPTS="$JAVA_OPTS -Djava.awt.headless=true -XX:CompressedClassSpaceSize=256M -Djboss.threads.eqe.statistics.active=true"
+
+BUNDLE_HOME=/opt/e-SUS/webserver
+PEC_HOME=/opt/e-SUS
+JAVA_HOME=$PEC_HOME/jre/current
+CERTMGR_HOME=$BUNDLE_HOME/certmgr
+CERTMGR_CONFIG_FILE=$CERTMGR_HOME/config/ssl.properties
+
+if [ -f "$CERTMGR_CONFIG_FILE" ]; then
+  export SPRING_CONFIG_ADDITIONAL_LOCATION=$CERTMGR_CONFIG_FILE
+  cd "$CERTMGR_HOME"
+  "$JAVA_HOME/bin/java" -jar "$CERTMGR_HOME/certmgr.jar" --renew
+fi
+
+cd "$BUNDLE_HOME"
+exec "$JAVA_HOME/bin/java" $JAVA_OPTS \
+  -javaagent:/opt/monitoring/jmx_prometheus_javaagent.jar=9404:/etc/monitoring/jmx-exporter.yml \
+  -jar "$BUNDLE_HOME/pec-bundle.jar"
+WRAPPER
+chmod 0755 "$wrapper_file"
 
 cat >"$dropin_file" <<'UNIT'
 [Service]
-Environment="JAVA_TOOL_OPTIONS=-javaagent:/opt/monitoring/jmx_prometheus_javaagent.jar=9404:/etc/monitoring/jmx-exporter.yml"
+ExecStart=
+ExecStart=/opt/monitoring/run-esus-pec-with-jmx.sh
 UNIT
 chmod 0644 "$dropin_file"
 
@@ -819,19 +926,34 @@ if ! systemctl restart e-SUS-PEC.service; then
   exit 1
 fi
 
-if ! wait_http_ready http://127.0.0.1:8080 90 ||
-   ! wait_http_ready http://127.0.0.1:9404/metrics 60; then
-  rollback_jmx
-  echo "PEC HTTP or JMX endpoint failed readiness after JMX drop-in; restored previous JMX state." >&2
+if ! wait_http_ready http://127.0.0.1:8080 180; then
+  rollback_jmx || echo "Rollback completed but PEC HTTP readiness was not observed within the rollback window." >&2
+  echo "PEC HTTP endpoint failed readiness after JMX drop-in; restored previous JMX state." >&2
   exit 1
 fi
 
-if ! curl -fsS http://127.0.0.1:9404/metrics |
-    grep -Eq '^jvm_(memory|gc|threads)_'; then
-  rollback_jmx
-  echo "JMX exporter metrics did not include JVM memory, GC, or thread metrics; restored previous JMX state." >&2
+if ! wait_http_ready http://127.0.0.1:9404/metrics 180; then
+  rollback_jmx || echo "Rollback completed but PEC HTTP readiness was not observed within the rollback window." >&2
+  echo "JMX endpoint failed readiness after JMX drop-in; restored previous JMX state." >&2
   exit 1
 fi
+
+metrics_sample="$(mktemp)"
+if ! curl -fsS http://127.0.0.1:9404/metrics >"$metrics_sample"; then
+  rm -f "$metrics_sample"
+  rollback_jmx || echo "Rollback completed but PEC HTTP readiness was not observed within the rollback window." >&2
+  echo "JMX exporter metrics endpoint was not readable; restored previous JMX state." >&2
+  exit 1
+fi
+
+if ! grep -Eq '^jvm_(memory|gc|threads)_' "$metrics_sample"; then
+  sed -n -E 's/^# (HELP|TYPE) ([^ ]+).*/jmx_metric_name=\2/p' "$metrics_sample" | head -n 30 >&2
+  rm -f "$metrics_sample"
+  rollback_jmx || echo "Rollback completed but PEC HTTP readiness was not observed within the rollback window." >&2
+  echo "JMX exporter metrics did not include expected JVM memory, GC, or thread metrics; restored previous JMX state." >&2
+  exit 1
+fi
+rm -f "$metrics_sample"
 
 printf 'jmx=ready\n'
 '@.
@@ -840,7 +962,7 @@ printf 'jmx=ready\n'
     Replace("__JMX_EXPORTER_URL__", $jmxExporterUrl).
     Replace("__JMX_EXPORTER_SHA256__", $jmxExporterSha256)
 
-  $output = Invoke-ContainerBash -Script $jmxScript
+  $output = Invoke-ContainerBash -Script $jmxScript -Label "jmx-exporter"
   $state = Read-KeyValueOutput -Output $output
   if ($state.Contains("jmx")) {
     return $state["jmx"]

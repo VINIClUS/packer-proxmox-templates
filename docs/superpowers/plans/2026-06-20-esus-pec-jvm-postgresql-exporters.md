@@ -4,7 +4,7 @@
 
 **Goal:** Install, secure, scrape, visualize, and validate PostgreSQL 9.6 and JVM exporters for e-SUS PEC on CT `133`.
 
-**Architecture:** Add a focused `Configure-EsusPecApplicationExporters.ps1` orchestrator and keep `Install-MonitoringTargetAgent.ps1` as the public entry point. The PostgreSQL exporter uses a dedicated non-superuser whose password is persisted in Infisical; the JMX exporter is injected through a reversible systemd drop-in. Prometheus and Grafana continue using the existing `host`, `ctid`, `app`, and `instance` labels.
+**Architecture:** Add a focused `Configure-EsusPecApplicationExporters.ps1` orchestrator and keep `Install-MonitoringTargetAgent.ps1` as the public entry point. The PostgreSQL exporter uses a dedicated non-superuser whose password is persisted in Infisical; the JMX exporter is injected through a reversible systemd drop-in that points `ExecStart` to a managed wrapper. Prometheus and Grafana continue using the existing `host`, `ctid`, `app`, and `instance` labels.
 
 **Tech Stack:** PowerShell, Proxmox `pct`, systemd, PostgreSQL 9.6, postgres_exporter 0.19.1, JMX Exporter 1.6.0, Prometheus, Grafana, Infisical API.
 
@@ -14,7 +14,7 @@
 
 - Create `scripts/monitoring/Configure-EsusPecApplicationExporters.ps1`
   - Owns Infisical password lifecycle, artifact downloads, PostgreSQL bootstrap,
-    JMX drop-in deployment, health checks, and rollback.
+    JMX wrapper/drop-in deployment, health checks, and rollback.
 - Create `scripts/monitoring/templates/postgres-exporter-9.6.sql`
   - Idempotent PostgreSQL 9.6 non-superuser compatibility objects.
 - Create `scripts/monitoring/templates/jmx-exporter.yml`
@@ -97,7 +97,8 @@ foreach ($term in @(
   "127.0.0.1:5433",
   "DATA_SOURCE_PASS_FILE",
   "monitoring-jmx.conf",
-  "JAVA_TOOL_OPTIONS",
+  "/opt/monitoring/run-esus-pec-with-jmx.sh",
+  "ExecStart=",
   "wait_http_ready",
   "rollback_jmx"
 )) {
@@ -617,11 +618,12 @@ rollback_jmx() {
 }
 ```
 
-- [ ] **Step 3: Write the managed drop-in**
+- [ ] **Step 3: Write the managed wrapper and drop-in**
 
 ```ini
 [Service]
-Environment="JAVA_TOOL_OPTIONS=-javaagent:/opt/monitoring/jmx_prometheus_javaagent.jar=9404:/etc/monitoring/jmx-exporter.yml"
+ExecStart=
+ExecStart=/opt/monitoring/run-esus-pec-with-jmx.sh
 ```
 
 Use:
@@ -758,7 +760,7 @@ Remove the obsolete commented optional-target section.
 In `Provision-MonitoringCore.ps1`, replace unconditional restart with:
 
 ```bash
-promtool check config /etc/prometheus/prometheus.yml
+/usr/local/bin/promtool check config /etc/prometheus/prometheus.yml
 systemctl restart prometheus grafana-server loki alloy
 ```
 
@@ -766,7 +768,7 @@ The pushed config should first go to
 `/etc/prometheus/prometheus.yml.candidate`. Validate it, then atomically move it:
 
 ```bash
-promtool check config /etc/prometheus/prometheus.yml.candidate
+/usr/local/bin/promtool check config /etc/prometheus/prometheus.yml.candidate
 install -o prometheus -g prometheus -m 0644 \
   /etc/prometheus/prometheus.yml.candidate \
   /etc/prometheus/prometheus.yml
@@ -836,7 +838,7 @@ rate(jvm_gc_collection_seconds_sum{host="esus-pec-lxc-5437"}[5m])
 rate(jvm_gc_collection_seconds_count{host="esus-pec-lxc-5437"}[5m])
 jvm_threads_current{host="esus-pec-lxc-5437"}
 jvm_threads_daemon{host="esus-pec-lxc-5437"}
-jvm_classes_loaded{host="esus-pec-lxc-5437"}
+jvm_classes_loaded_total{host="esus-pec-lxc-5437"}
 process_cpu_seconds_total{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}
 process_start_time_seconds{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}
 ```
