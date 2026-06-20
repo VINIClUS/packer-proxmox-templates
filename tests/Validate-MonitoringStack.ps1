@@ -426,17 +426,20 @@ foreach ($runbookTerm in @(
   Assert-ArtifactContainsTerm $runbookPath $runbookTerm "Task 7 runbook"
 }
 
-$staleExporterDocs = @(
-  "docs/monitoring/2026-06-14-centralized-monitoring.md",
-  "config/esus-pec.infisical.env.example"
+$runbookStaleTerms = @(
+  "DSN",
+  "monitoring-targets.local.env"
 )
-foreach ($artifactPath in $staleExporterDocs) {
-  foreach ($staleTerm in @(
-    "ESUS_PEC_POSTGRES_EXPORTER_DSN",
-    "config/monitoring-targets.local.env"
-  )) {
+foreach ($staleTerm in $runbookStaleTerms) {
+  if ($artifactByPath[$runbookPath].Content -match [regex]::Escape($staleTerm)) {
+    throw "Stale PostgreSQL exporter credential documentation remains in ${runbookPath}: $staleTerm"
+  }
+}
+
+foreach ($artifactPath in @("config/esus-pec.infisical.env.example")) {
+  foreach ($staleTerm in @("ESUS_PEC_POSTGRES_EXPORTER_DSN", "config/monitoring-targets.local.env")) {
     if ($artifactByPath[$artifactPath].Content -match [regex]::Escape($staleTerm)) {
-      throw "Stale PostgreSQL exporter DSN documentation remains in ${artifactPath}: $staleTerm"
+      throw "Stale PostgreSQL exporter credential documentation remains in ${artifactPath}: $staleTerm"
     }
   }
 }

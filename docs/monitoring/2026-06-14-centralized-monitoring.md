@@ -34,8 +34,8 @@ target OS and systems are ready for monitored agent installation.
 - CTID: `133`
 - Hostname: `esus-pec-lxc-5437`
 - Role: initial e-SUS PEC 5.4.37 target for Linux metrics, Nginx metrics where
-  available, PostgreSQL exporter when a local secret DSN is provided, and Alloy
-  log shipping.
+  available, PostgreSQL exporter through a dedicated `prometheus_exporter`
+  account managed in Infisical when configured, and Alloy log shipping.
 
 ### Future Targets
 
@@ -186,9 +186,9 @@ Monitoring stack static validation passed.
 
 ## Secret Handling
 
-Do not commit, paste, or print Grafana passwords, PostgreSQL DSNs, tokens,
-patient data, request body data, or raw sensitive logs in Git, chat, terminal
-logs, screenshots, or documentation.
+Do not commit, paste, or print Grafana passwords, PostgreSQL exporter
+passwords, tokens, patient data, request body data, or raw sensitive logs in
+Git, chat, terminal logs, screenshots, or documentation.
 
 The Grafana dashboard publisher requires `grafana_token`, but the token value is
 only read from `.env`, environment variables, or Infisical. The sync and publish
@@ -309,8 +309,9 @@ Live CT `133` target evidence collected on 2026-06-14:
 - Nginx exporter metrics: `http://127.0.0.1:9113/metrics` returned success
   inside CT `133`
 - Nginx status endpoint: managed local-only `stub_status`
-- PostgreSQL exporter: `skipped`, because no approved DSN was provided with
-  `-ConfigurePostgresExporter`
+- PostgreSQL exporter: previous rollout skipped; the current exporter rollout
+  provisions a dedicated monitoring account through Infisical when
+  `-ConfigurePostgresExporter` is applied.
 - JMX exporter: `skipped`, because Java service mutation is proposal-only until
   staged JMX artifacts and a reviewed apply plan exist
 
