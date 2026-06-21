@@ -7,6 +7,18 @@ Reconciled the e-SUS PEC Infisical project `esus-pec`, environment `dev`, using 
 ```text
 /test
 /test/InstallationConfig
+/test/InstallationConfig/FirstRun
+/test/InstallationConfig/TLS
+/test/InstallationConfig/Connectivity
+/test/InstallationConfig/Security
+/test/InstallationConfig/Municipality
+/test/InstallationConfig/Files
+/test/InstallationConfig/Advanced
+/test/InstallationConfig/GovBrOAuth
+/test/InstallationConfig/Importacao/CNES
+/test/InstallationConfig/Importacao/BolsaFamilia
+/test/InstallationConfig/Transmissao
+/test/InstallationConfig/Transmissao/API
 /test/Monitoring
 /test/ObjectStorage
 ```
@@ -62,7 +74,20 @@ Monitoring values live under <code>/test/Monitoring</code>:
 - `grafana_url`
 - `grafana_token`
 
-`/test/InstallationConfig` stores first-run, TLS, non-secret metadata, Gov.br OAuth, CNES/PBF import metadata, transmission desired state, and post-install desired state. Examples include `ESUS_PEC_TLS_HTTPS_URL`, `ESUS_PEC_LXC_TEST_HTTPS_URL`, `ESUS_PEC_HORUS_DISABLE_INTERVAL`, `ESUS_PEC_BASE_UNIFICATION_ENABLED`, `ESUS_PEC_GOVBR_OAUTH_CLIENT_SECRET`, `ESUS_PEC_CNES_IMPORT_OBJECT_KEY`, and `ESUS_PEC_BOLSA_FAMILIA_IMPORT_OBJECT_KEY`.
+`/test/InstallationConfig` is now the parent for endpoint/functionality folders. The intended ownership is:
+
+- `FirstRun`: installer URL/checksum, first-run wizard values, local CT URLs, and credential-file location.
+- `TLS`: certificate PEM, private key PEM, HTTPS URL, fingerprint, SAN, expiration, and TLS termination mode.
+- `Connectivity`: internet, CADSUS, Horus, video calls, online agenda, and SMTP desired-state toggles.
+- `Security`: digital-signature fields and password/session security policy.
+- `Municipality`: municipality and responsible-professional desired state.
+- `Files`: PEC file-attachment toggle and directory.
+- `Advanced`: concurrent requests, citizen search, CDS family/property registration, base unification, and server timezone.
+- `GovBrOAuth`: Gov.br OAuth and native TLS fallback variables.
+- `Importacao/CNES`: CNES route, object metadata, and latest import result.
+- `Importacao/BolsaFamilia`: Bolsa Familia route, object metadata, expected vigencia, and latest import result.
+- `Transmissao`: transmission link route, centralizer metadata, status, and batch-processing time.
+- `Transmissao/API`: API credential desired state and the `CredenciaisIntegracaoOld` expected count.
 
 ## Reconciliation Result
 
@@ -91,6 +116,37 @@ secretValuesPrinted=0
 On 2026-06-21, after the Infisical token was updated, the analyzer found zero duplicate names, zero misplaced variables, and 16 missing `InstallationConfig` names from the tracked `.example` catalog. The corrected sync created those 16 names and deleted no variables. The follow-up analyzer run reported zero missing, zero misplaced, and zero unmanaged names in both managed paths.
 
 Later on 2026-06-21, the domain migration moved `grafana_url`, `grafana_token`, and `ESUS_PEC_POSTGRES_EXPORTER_PASSWORD` to `/test/Monitoring`; it also moved all `ESUS_PEC_OBJECT_STORAGE_*` and `ESUS_PEC_WALG_*` names to `/test/ObjectStorage`. The sync created 41 destination entries, removed the 41 old-path entries only after destination creation, and the follow-up analyzer reported zero duplicates, zero missing variables, zero misplaced variables, and zero unmanaged variables across all four managed paths.
+
+On 2026-06-21, the transmission settings route `/transmissao/configuracoes` was reviewed again. The "Credenciais para API" area exposes `tipoPessoa`, `nomeResponsavel`, `cpfCnpj`, `email`, `nomeCredencial`, and the active-only filter through `CredenciaisIntegracaoOld`; production and local both had zero existing integration credentials in the collected comparison. The tracked catalog now includes:
+
+```text
+ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_PERSON_TYPE=FISICA
+ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_RESPONSIBLE_NAME=
+ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_CPF_CNPJ=
+ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_EMAIL=
+ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_NAME=
+ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_ACTIVE_ONLY=false
+```
+
+The subfolder migration is implemented in `Sync-EsusPecInfisicalVariables.ps1` and `Analyze-EsusPecInfisicalVariables.ps1`, but the first non-dry-run attempt stopped before moving secrets because the current token returned HTTP `403` for `/test/InstallationConfig/FirstRun`. No source secret was deleted. Grant create/delete on all `InstallationConfig` subpaths listed above before rerunning the non-dry-run sync.
+
+Current blocked validation result:
+
+```text
+currentTestSecretCount=15
+currentInstallationConfigSecretCount=104
+currentMonitoringSecretCount=3
+currentObjectStorageSecretCount=38
+expectedRuntimeCount=15
+expectedInstallationCount=110
+expectedMonitoringCount=3
+expectedObjectStorageCount=38
+expectedDuplicateNames=0
+plannedSubpathMigrationCreatedCount=110
+plannedSubpathMigrationDeletedCount=104
+pendingSubpathMigrationHttp403=/test/InstallationConfig/FirstRun
+secretValuesPrinted=0
+```
 
 ## Notes
 

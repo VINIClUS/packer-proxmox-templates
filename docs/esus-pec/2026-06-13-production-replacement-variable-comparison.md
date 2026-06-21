@@ -63,10 +63,16 @@ Correct active routes observed in PEC 5.4.37:
 | Transmission | Connection status | `true` | `true` | `ESUS_PEC_TRANSMISSAO_LINK_STATUS_EXPECTED=true` |
 | Transmission | Batch generation time | `00:00:00` | `00:00:00` | `ESUS_PEC_TRANSMISSAO_LOTE_PROCESSAMENTO_HORARIO=00:00:00` |
 | Transmission | Integration credentials count | `0` | `0` | `ESUS_PEC_TRANSMISSAO_CREDENCIAIS_INTEGRACAO_EXPECTED_COUNT=0` |
+| Transmission API credentials | Person type field | `FISICA` default | `FISICA` default | `ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_PERSON_TYPE=FISICA` |
+| Transmission API credentials | Responsible-name field | blank | blank | `ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_RESPONSIBLE_NAME=` |
+| Transmission API credentials | CPF/CNPJ field | blank | blank | `ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_CPF_CNPJ=` |
+| Transmission API credentials | E-mail field | blank | blank | `ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_EMAIL=` |
+| Transmission API credentials | Credential-name field | blank | blank | `ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_NAME=` |
+| Transmission API credentials | Active-only filter | `false` | `false` | `ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_ACTIVE_ONLY=false` |
 
 ## Implementation Gaps
 
-1. Add the new non-secret desired-state variables to Infisical under `/test/InstallationConfig`; later mirror to `/prod/InstallationConfig` during the approved cutover.
+1. Add the new non-secret desired-state variables to Infisical under the matching `/test/InstallationConfig/*` subfolders; later mirror to `/prod/InstallationConfig` during the approved cutover.
 2. Correct local timezone to `America/Sao_Paulo` and revalidate that `serverTimezoneOffset` returns `-180`.
 3. Investigate `govBREnabled=false` on the local installation before replacing production. This is the only functional setting mismatch found in the collected installation configuration.
 4. Keep the production public URL in the restored local database for replacement readiness, but validate DNS/TLS before traffic cutover.

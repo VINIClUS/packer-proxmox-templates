@@ -87,6 +87,24 @@ function Get-ExampleSecretNames {
   return @($names.ToArray() | Sort-Object -Unique)
 }
 
+function Get-InstallationSecretPaths {
+  return @(
+    $InstallationSecretPath,
+    "$InstallationSecretPath/FirstRun",
+    "$InstallationSecretPath/TLS",
+    "$InstallationSecretPath/Connectivity",
+    "$InstallationSecretPath/Security",
+    "$InstallationSecretPath/Municipality",
+    "$InstallationSecretPath/Files",
+    "$InstallationSecretPath/Advanced",
+    "$InstallationSecretPath/GovBrOAuth",
+    "$InstallationSecretPath/Importacao/CNES",
+    "$InstallationSecretPath/Importacao/BolsaFamilia",
+    "$InstallationSecretPath/Transmissao",
+    "$InstallationSecretPath/Transmissao/API"
+  )
+}
+
 function Get-DesiredInfisicalPath {
   param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -109,13 +127,45 @@ function Get-DesiredInfisicalPath {
     return $MonitoringSecretPath
   }
 
-  if ($Name -match "^ESUS_PEC_DB_" -or
-      $Name -in $runtimeExactNames) {
+  if ($Name -match "^ESUS_PEC_DB_" -or $Name -in $runtimeExactNames) {
     return $RuntimeSecretPath
   }
 
+  if ($Name -match "^ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_" -or $Name -eq "ESUS_PEC_TRANSMISSAO_CREDENCIAIS_INTEGRACAO_EXPECTED_COUNT") {
+    return "$InstallationSecretPath/Transmissao/API"
+  }
+  if ($Name -match "^ESUS_PEC_TRANSMISSAO_") {
+    return "$InstallationSecretPath/Transmissao"
+  }
+  if ($Name -match "^ESUS_PEC_CNES_") {
+    return "$InstallationSecretPath/Importacao/CNES"
+  }
+  if ($Name -match "^ESUS_PEC_BOLSA_FAMILIA_") {
+    return "$InstallationSecretPath/Importacao/BolsaFamilia"
+  }
+  if ($Name -match "^ESUS_PEC_GOVBR_") {
+    return "$InstallationSecretPath/GovBrOAuth"
+  }
+  if ($Name -match "^ESUS_PEC_TLS_") {
+    return "$InstallationSecretPath/TLS"
+  }
+  if ($Name -in @("ESUS_PEC_INTERNET_ENABLED", "ESUS_PEC_CADSUS_ENABLED", "ESUS_PEC_CADSUS_DISABLE_INTERVAL", "ESUS_PEC_HORUS_ENABLED", "ESUS_PEC_HORUS_DISABLE_INTERVAL", "ESUS_PEC_VIDEOCHAMADAS_ENABLED", "ESUS_PEC_AGENDA_ONLINE_ENABLED", "ESUS_PEC_SMTP_ENABLED", "ESUS_PEC_SMTP_FROM_EMAIL", "ESUS_PEC_SMTP_USE_LOGIN_AS_SENDER")) {
+    return "$InstallationSecretPath/Connectivity"
+  }
+  if ($Name -in @("ESUS_PEC_ASSINATURA_DIGITAL_ENABLED", "ESUS_PEC_ASSINATURA_DIGITAL_LOGIN", "ESUS_PEC_ASSINATURA_DIGITAL_PASSWORD", "ESUS_PEC_PASSWORD_RESET_PERIOD_MONTHS", "ESUS_PEC_MAX_INACTIVITY_MINUTES", "ESUS_PEC_MAX_LOGIN_ATTEMPTS", "ESUS_PEC_FORCE_PASSWORD_RESET_ON_NEXT_LOGIN")) {
+    return "$InstallationSecretPath/Security"
+  }
+  if ($Name -in @("ESUS_PEC_MUNICIPALITY_ID", "ESUS_PEC_RESPONSIBLE_PROFESSIONAL_ID", "ESUS_PEC_MUNICIPAL_RESPONSIBLE_ENABLED")) {
+    return "$InstallationSecretPath/Municipality"
+  }
+  if ($Name -match "^ESUS_PEC_FILE_ATTACHMENTS_") {
+    return "$InstallationSecretPath/Files"
+  }
+  if ($Name -in @("ESUS_PEC_CONCURRENT_REQUESTS_USE_DEFAULT", "ESUS_PEC_CONCURRENT_REQUESTS", "ESUS_PEC_CITIZEN_SEARCH_BY_PROPERTIES_ENABLED", "ESUS_PEC_CDS_PROPERTY_FAMILY_REGISTRATION_ENABLED", "ESUS_PEC_BASE_UNIFICATION_ENABLED", "ESUS_PEC_BASE_UNIFICATION_MODE", "ESUS_PEC_SERVER_TIMEZONE", "ESUS_PEC_SERVER_TIMEZONE_OFFSET_MINUTES")) {
+    return "$InstallationSecretPath/Advanced"
+  }
   if ($Name -match "^ESUS_PEC_") {
-    return $InstallationSecretPath
+    return "$InstallationSecretPath/FirstRun"
   }
 
   return $null
@@ -131,92 +181,97 @@ function New-PathEntry {
 }
 
 $headers = @{ Authorization = "Bearer $(Get-InfisicalToken)" }
-$runtimeNames = @(Get-InfisicalSecretNames -SecretPath $RuntimeSecretPath -Headers $headers)
-$installationNames = @(Get-InfisicalSecretNames -SecretPath $InstallationSecretPath -Headers $headers)
-$monitoringNames = @(Get-InfisicalSecretNames -SecretPath $MonitoringSecretPath -Headers $headers)
-$objectStorageNames = @(Get-InfisicalSecretNames -SecretPath $ObjectStorageSecretPath -Headers $headers)
 $exampleNames = @(Get-ExampleSecretNames -Path $ExampleFile)
+$managedPaths = @($RuntimeSecretPath) + @(Get-InstallationSecretPaths) + @($MonitoringSecretPath, $ObjectStorageSecretPath)
 
-$expectedRuntime = @($exampleNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -eq $RuntimeSecretPath } | Sort-Object -Unique)
-$expectedInstallation = @($exampleNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -eq $InstallationSecretPath } | Sort-Object -Unique)
-$expectedMonitoring = @($exampleNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -eq $MonitoringSecretPath } | Sort-Object -Unique)
-$expectedObjectStorage = @($exampleNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -eq $ObjectStorageSecretPath } | Sort-Object -Unique)
+$currentByPath = [ordered]@{}
+foreach ($path in $managedPaths) {
+  $currentByPath[$path] = @(Get-InfisicalSecretNames -SecretPath $path -Headers $headers)
+}
 
-$pathMaps = @(
-  @{ Path = $RuntimeSecretPath; Names = $runtimeNames },
-  @{ Path = $InstallationSecretPath; Names = $installationNames },
-  @{ Path = $MonitoringSecretPath; Names = $monitoringNames },
-  @{ Path = $ObjectStorageSecretPath; Names = $objectStorageNames }
-)
-
-$seen = @{}
-foreach ($pathMap in $pathMaps) {
-  foreach ($name in @($pathMap["Names"])) {
-    if (-not $seen.ContainsKey($name)) {
-      $seen[$name] = New-Object System.Collections.Generic.List[string]
+$expectedByPath = [ordered]@{}
+foreach ($path in $managedPaths) {
+  $expectedByPath[$path] = @()
+}
+foreach ($name in $exampleNames) {
+  $desiredPath = Get-DesiredInfisicalPath -Name $name
+  if ($null -ne $desiredPath) {
+    if (-not $expectedByPath.Contains($desiredPath)) {
+      $expectedByPath[$desiredPath] = @()
     }
-    $seen[$name].Add([string]$pathMap["Path"])
+    $expectedByPath[$desiredPath] = @($expectedByPath[$desiredPath] + $name | Sort-Object -Unique)
   }
 }
 
-$duplicateNames = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 } | Sort-Object)
-$missingRuntime = @($expectedRuntime | Where-Object { $_ -notin $runtimeNames } | ForEach-Object { New-PathEntry -Path $RuntimeSecretPath -Name $_ })
-$missingInstallation = @($expectedInstallation | Where-Object { $_ -notin $installationNames } | ForEach-Object { New-PathEntry -Path $InstallationSecretPath -Name $_ })
-$missingMonitoring = @($expectedMonitoring | Where-Object { $_ -notin $monitoringNames } | ForEach-Object { New-PathEntry -Path $MonitoringSecretPath -Name $_ })
-$missingObjectStorage = @($expectedObjectStorage | Where-Object { $_ -notin $objectStorageNames } | ForEach-Object { New-PathEntry -Path $ObjectStorageSecretPath -Name $_ })
-$misplacedRuntime = @($runtimeNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -ne $RuntimeSecretPath -and $null -ne (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $RuntimeSecretPath -Name $_ })
-$misplacedInstallation = @($installationNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -ne $InstallationSecretPath -and $null -ne (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $InstallationSecretPath -Name $_ })
-$misplacedMonitoring = @($monitoringNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -ne $MonitoringSecretPath -and $null -ne (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $MonitoringSecretPath -Name $_ })
-$misplacedObjectStorage = @($objectStorageNames | Where-Object { (Get-DesiredInfisicalPath -Name $_) -ne $ObjectStorageSecretPath -and $null -ne (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $ObjectStorageSecretPath -Name $_ })
-$unmanagedRuntime = @($runtimeNames | Where-Object { $null -eq (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $RuntimeSecretPath -Name $_ })
-$unmanagedInstallation = @($installationNames | Where-Object { $null -eq (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $InstallationSecretPath -Name $_ })
-$unmanagedMonitoring = @($monitoringNames | Where-Object { $null -eq (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $MonitoringSecretPath -Name $_ })
-$unmanagedObjectStorage = @($objectStorageNames | Where-Object { $null -eq (Get-DesiredInfisicalPath -Name $_) } | ForEach-Object { New-PathEntry -Path $ObjectStorageSecretPath -Name $_ })
+$seen = @{}
+foreach ($path in $managedPaths) {
+  foreach ($name in @($currentByPath[$path])) {
+    if (-not $seen.ContainsKey($name)) {
+      $seen[$name] = New-Object System.Collections.Generic.List[string]
+    }
+    $seen[$name].Add([string]$path)
+  }
+}
 
+$missing = New-Object System.Collections.Generic.List[string]
+$misplaced = New-Object System.Collections.Generic.List[string]
+$unmanaged = New-Object System.Collections.Generic.List[string]
+
+foreach ($path in $managedPaths) {
+  foreach ($name in @($expectedByPath[$path])) {
+    if ($name -notin @($currentByPath[$path])) {
+      $missing.Add((New-PathEntry -Path $path -Name $name))
+    }
+  }
+
+  foreach ($name in @($currentByPath[$path])) {
+    $desiredPath = Get-DesiredInfisicalPath -Name $name
+    if ($null -eq $desiredPath) {
+      $unmanaged.Add((New-PathEntry -Path $path -Name $name))
+    } elseif ($desiredPath -ne $path) {
+      $misplaced.Add((New-PathEntry -Path $path -Name $name))
+    }
+  }
+}
+
+$installationPaths = @(Get-InstallationSecretPaths)
+$installationCurrent = 0
+$expectedInstallation = 0
+foreach ($path in $installationPaths) {
+  $installationCurrent += @($currentByPath[$path]).Count
+  $expectedInstallation += @($expectedByPath[$path]).Count
+}
+
+$duplicateNames = @($seen.Keys | Where-Object { $seen[$_].Count -gt 1 } | Sort-Object)
 $report = [ordered]@{
   generatedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   infisicalUrl = $InfisicalUrl
   environment = $InfisicalEnvironment
   runtimePath = $RuntimeSecretPath
   installationPath = $InstallationSecretPath
+  installationPaths = @($installationPaths)
   monitoringPath = $MonitoringSecretPath
   objectStoragePath = $ObjectStorageSecretPath
   counts = [ordered]@{
-    runtimeCurrent = $runtimeNames.Count
-    installationCurrent = $installationNames.Count
-    monitoringCurrent = $monitoringNames.Count
-    objectStorageCurrent = $objectStorageNames.Count
-    expectedRuntime = $expectedRuntime.Count
-    expectedInstallation = $expectedInstallation.Count
-    expectedMonitoring = $expectedMonitoring.Count
-    expectedObjectStorage = $expectedObjectStorage.Count
+    runtimeCurrent = @($currentByPath[$RuntimeSecretPath]).Count
+    installationCurrent = $installationCurrent
+    monitoringCurrent = @($currentByPath[$MonitoringSecretPath]).Count
+    objectStorageCurrent = @($currentByPath[$ObjectStorageSecretPath]).Count
+    expectedRuntime = @($expectedByPath[$RuntimeSecretPath]).Count
+    expectedInstallation = $expectedInstallation
+    expectedMonitoring = @($expectedByPath[$MonitoringSecretPath]).Count
+    expectedObjectStorage = @($expectedByPath[$ObjectStorageSecretPath]).Count
     duplicateNames = $duplicateNames.Count
-    missingRuntime = $missingRuntime.Count
-    missingInstallation = $missingInstallation.Count
-    missingMonitoring = $missingMonitoring.Count
-    missingObjectStorage = $missingObjectStorage.Count
-    misplacedRuntime = $misplacedRuntime.Count
-    misplacedInstallation = $misplacedInstallation.Count
-    misplacedMonitoring = $misplacedMonitoring.Count
-    misplacedObjectStorage = $misplacedObjectStorage.Count
-    unmanagedRuntime = $unmanagedRuntime.Count
-    unmanagedInstallation = $unmanagedInstallation.Count
-    unmanagedMonitoring = $unmanagedMonitoring.Count
-    unmanagedObjectStorage = $unmanagedObjectStorage.Count
+    missing = $missing.Count
+    misplaced = $misplaced.Count
+    unmanaged = $unmanaged.Count
   }
+  currentByPath = $currentByPath
+  expectedByPath = $expectedByPath
   duplicateNames = @($duplicateNames)
-  missingRuntime = @($missingRuntime)
-  missingInstallation = @($missingInstallation)
-  missingMonitoring = @($missingMonitoring)
-  missingObjectStorage = @($missingObjectStorage)
-  misplacedRuntime = @($misplacedRuntime)
-  misplacedInstallation = @($misplacedInstallation)
-  misplacedMonitoring = @($misplacedMonitoring)
-  misplacedObjectStorage = @($misplacedObjectStorage)
-  unmanagedRuntime = @($unmanagedRuntime)
-  unmanagedInstallation = @($unmanagedInstallation)
-  unmanagedMonitoring = @($unmanagedMonitoring)
-  unmanagedObjectStorage = @($unmanagedObjectStorage)
+  missing = @($missing)
+  misplaced = @($misplaced)
+  unmanaged = @($unmanaged)
 }
 
 $outputDirectory = Split-Path -Parent $OutputPath
@@ -224,6 +279,6 @@ if (-not [string]::IsNullOrWhiteSpace($outputDirectory)) {
   New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 }
 
-$json = $report | ConvertTo-Json -Depth 8
+$json = $report | ConvertTo-Json -Depth 10
 Set-Content -LiteralPath $OutputPath -Value $json -Encoding UTF8
 $json

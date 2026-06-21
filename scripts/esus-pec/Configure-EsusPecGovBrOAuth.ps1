@@ -6,7 +6,8 @@ param(
   [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
   [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
   [string]$InfisicalEnvironment = "dev",
-  [string]$InfisicalSecretPath = "/test/InstallationConfig",
+  [string]$InfisicalSecretPath = "/test/InstallationConfig/GovBrOAuth",
+  [string]$LegacyInfisicalSecretPath = "/test/InstallationConfig",
   [string]$Domain = "esus.presidenteepitacio.sp.gov.br",
   [string]$LocalIp = "192.168.1.209",
   [string]$ServerTimezone = "America/Sao_Paulo",
@@ -59,14 +60,68 @@ function Get-InfisicalToken {
 }
 
 function Get-InfisicalSecrets {
-  param([Parameter(Mandatory = $true)][hashtable]$Headers)
-  $uri = "$InfisicalUrl/api/v3/secrets/raw?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&secretPath=$([uri]::EscapeDataString($InfisicalSecretPath))"
-  $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers -TimeoutSec 30
+  param(
+    [Parameter(Mandatory = $true)][hashtable]$Headers,
+    [Parameter(Mandatory = $true)][string]$SecretPath
+  )
+  $uri = "$InfisicalUrl/api/v3/secrets/raw?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&secretPath=$([uri]::EscapeDataString($SecretPath))"
+  try {
+    $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers -TimeoutSec 30
+  } catch {
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
+      return @{}
+    }
+    throw
+  }
   $result = @{}
   foreach ($secret in @($response.secrets)) {
     $result[[string]$secret.secretKey] = [string]$secret.secretValue
   }
   return $result
+}
+
+function Get-MergedInfisicalSecrets {
+  param([Parameter(Mandatory = $true)][hashtable]$Headers)
+
+  $legacy = Get-InfisicalSecrets -Headers $Headers -SecretPath $LegacyInfisicalSecretPath
+  $current = Get-InfisicalSecrets -Headers $Headers -SecretPath $InfisicalSecretPath
+  foreach ($key in $legacy.Keys) {
+    if (-not $current.ContainsKey($key)) {
+      $current[$key] = [string]$legacy[$key]
+    }
+  }
+  return $current
+}
+
+function Ensure-InfisicalFolderPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$SecretPath,
+    [Parameter(Mandatory = $true)][hashtable]$Headers
+  )
+
+  $segments = @($SecretPath.Trim("/") -split "/" | Where-Object { $_ -ne "" })
+  if ($segments.Count -eq 0) { return }
+
+  $parent = "/"
+  foreach ($segment in $segments) {
+    $listUri = "$InfisicalUrl/api/v1/folders?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&path=$([uri]::EscapeDataString($parent))"
+    $folders = Invoke-RestMethod -Method Get -Uri $listUri -Headers $Headers -TimeoutSec 30
+    if (@($folders.folders | Where-Object { $_.name -eq $segment }).Count -eq 0) {
+      $body = @{
+        workspaceId = $InfisicalWorkspaceId
+        environment = $InfisicalEnvironment
+        name = $segment
+        path = $parent
+      } | ConvertTo-Json -Compress
+      try {
+        $null = Invoke-RestMethod -Method Post -Uri "$InfisicalUrl/api/v1/folders" -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+      } catch {
+        if (-not $_.Exception.Response -or $_.Exception.Response.StatusCode.value__ -ne 409) { throw }
+      }
+    }
+
+    if ($parent -eq "/") { $parent = "/$segment" } else { $parent = "$parent/$segment" }
+  }
 }
 
 function Set-InfisicalSecret {
@@ -91,6 +146,7 @@ function Set-InfisicalSecret {
   if ($Exists) {
     $null = Invoke-RestMethod -Method Patch -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
   } else {
+    Ensure-InfisicalFolderPath -SecretPath $InfisicalSecretPath -Headers $Headers
     $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
   }
 }
@@ -124,7 +180,7 @@ if (-not $sshHost -or -not $script:SshKey) {
 }
 
 $headers = @{ Authorization = "Bearer $(Get-InfisicalToken)" }
-$existing = Get-InfisicalSecrets -Headers $headers
+$existing = Get-MergedInfisicalSecrets -Headers $headers
 
 if (Test-Path -LiteralPath $SourceFile) {
   $sourcePath = Resolve-Path -LiteralPath $SourceFile
@@ -161,7 +217,7 @@ if (Test-Path -LiteralPath $SourceFile) {
   foreach ($entry in $sourceMetadata.GetEnumerator()) {
     Set-InfisicalSecret -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $existing.ContainsKey($entry.Key)
   }
-  $existing = Get-InfisicalSecrets -Headers $headers
+  $existing = Get-MergedInfisicalSecrets -Headers $headers
 }
 
 foreach ($required in @(

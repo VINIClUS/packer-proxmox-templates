@@ -8,7 +8,7 @@ param(
   [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
   [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
   [string]$InfisicalEnvironment = "dev",
-  [string]$InfisicalSecretPath = "/test/InstallationConfig",
+  [string]$InfisicalSecretPath = "/test/InstallationConfig/TLS",
   [switch]$ForceRotateCertificate,
   [switch]$SkipInfisical
 )
@@ -79,6 +79,47 @@ function Get-InfisicalToken {
   throw "Infisical token not found. Set infisical_secret_key in .env or INFISICAL_TOKEN in the environment."
 }
 
+function Ensure-InfisicalFolderPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$SecretPath,
+    [Parameter(Mandatory = $true)][hashtable]$Headers
+  )
+
+  $segments = @($SecretPath.Trim("/") -split "/" | Where-Object { $_ -ne "" })
+  if ($segments.Count -eq 0) {
+    return
+  }
+
+  $parent = "/"
+  foreach ($segment in $segments) {
+    $listUri = "$InfisicalUrl/api/v1/folders?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&path=$([uri]::EscapeDataString($parent))"
+    $folders = Invoke-RestMethod -Method Get -Uri $listUri -Headers $Headers -TimeoutSec 30
+
+    if (@($folders.folders | Where-Object { $_.name -eq $segment }).Count -eq 0) {
+      $body = @{
+        workspaceId = $InfisicalWorkspaceId
+        environment = $InfisicalEnvironment
+        name = $segment
+        path = $parent
+      } | ConvertTo-Json -Compress
+
+      try {
+        $null = Invoke-RestMethod -Method Post -Uri "$InfisicalUrl/api/v1/folders" -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+      } catch {
+        if (-not $_.Exception.Response -or $_.Exception.Response.StatusCode.value__ -ne 409) {
+          throw
+        }
+      }
+    }
+
+    if ($parent -eq "/") {
+      $parent = "/$segment"
+    } else {
+      $parent = "$parent/$segment"
+    }
+  }
+}
+
 function Set-InfisicalSecret {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -105,6 +146,7 @@ function Set-InfisicalSecret {
     if ($status -ne 404) {
       throw "Failed to update Infisical secret $Name. HTTP status: $status"
     }
+    Ensure-InfisicalFolderPath -SecretPath $InfisicalSecretPath -Headers $Headers
     $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
   }
 }

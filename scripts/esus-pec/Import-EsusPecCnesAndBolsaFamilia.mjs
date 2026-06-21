@@ -50,6 +50,7 @@ async function getInfisicalSecrets(secretPath) {
   url.searchParams.set("secretPath", secretPath);
 
   const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (response.status === 404) return {};
   if (!response.ok) throw new Error(`Infisical ${secretPath} returned HTTP ${response.status}`);
   const body = await response.json();
   return Object.fromEntries((body.secrets || []).map((secret) => [secret.secretKey, secret.secretValue]));
@@ -262,6 +263,30 @@ async function upsertMetadata(secretPath, metadata) {
   }
 }
 
+const INSTALLATION_SECRET_PATHS = [
+  "/test/InstallationConfig",
+  "/test/InstallationConfig/FirstRun",
+  "/test/InstallationConfig/TLS",
+  "/test/InstallationConfig/Connectivity",
+  "/test/InstallationConfig/Security",
+  "/test/InstallationConfig/Municipality",
+  "/test/InstallationConfig/Files",
+  "/test/InstallationConfig/Advanced",
+  "/test/InstallationConfig/GovBrOAuth",
+  "/test/InstallationConfig/Importacao/CNES",
+  "/test/InstallationConfig/Importacao/BolsaFamilia",
+  "/test/InstallationConfig/Transmissao",
+  "/test/InstallationConfig/Transmissao/API",
+];
+
+async function getInstallationConfigSecrets() {
+  const merged = {};
+  for (const secretPath of INSTALLATION_SECRET_PATHS) {
+    Object.assign(merged, await getInfisicalSecrets(secretPath));
+  }
+  return merged;
+}
+
 function newestItem(payload) {
   return payload?.content?.[0] || null;
 }
@@ -269,7 +294,7 @@ function newestItem(payload) {
 loadDotEnv(path.join(ROOT, ".env"));
 const args = parseArgs(process.argv.slice(2));
 const runtimeSecrets = await getInfisicalSecrets("/test");
-const installSecrets = await getInfisicalSecrets("/test/InstallationConfig");
+const installSecrets = await getInstallationConfigSecrets();
 
 const baseUrl = args.baseUrl || installSecrets.ESUS_PEC_LXC_TEST_HTTPS_URL || "https://192.168.1.209/";
 const username = args.username || process.env.user_esus_presidenteepitacio || runtimeSecrets.ESUS_PEC_ADMIN_USERNAME || installSecrets.ESUS_PEC_INSTALLER_CPF;
@@ -320,12 +345,14 @@ try {
   }
 
   results.completedAt = new Date().toISOString();
-  await upsertMetadata("/test/InstallationConfig", {
+  await upsertMetadata("/test/InstallationConfig/Importacao/CNES", {
     ESUS_PEC_CNES_IMPORT_LAST_RUN_AT: results.completedAt,
     ESUS_PEC_CNES_IMPORT_LAST_STATUS: results.cnes?.processo?.status || "",
     ESUS_PEC_CNES_IMPORT_LAST_IMPORT_ID: results.cnes?.id || "",
     ESUS_PEC_CNES_IMPORT_LAST_PROCESS_ID: results.cnes?.processo?.id || "",
     ESUS_PEC_CNES_IMPORT_LAST_MUNICIPALITY_ID: String(municipalityId),
+  });
+  await upsertMetadata("/test/InstallationConfig/Importacao/BolsaFamilia", {
     ESUS_PEC_BOLSA_FAMILIA_IMPORT_LAST_RUN_AT: results.completedAt,
     ESUS_PEC_BOLSA_FAMILIA_IMPORT_LAST_STATUS: results.bolsaFamilia?.statusImportacao || "",
     ESUS_PEC_BOLSA_FAMILIA_IMPORT_LAST_IMPORT_ID: results.bolsaFamilia?.id || "",

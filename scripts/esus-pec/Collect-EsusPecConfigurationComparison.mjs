@@ -33,11 +33,36 @@ async function getInfisicalSecrets(secretPath) {
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (response.status === 404) return {};
   if (!response.ok) {
     throw new Error(`Infisical ${secretPath} returned HTTP ${response.status}`);
   }
   const body = await response.json();
   return Object.fromEntries((body.secrets || []).map((secret) => [secret.secretKey, secret.secretValue]));
+}
+
+const INSTALLATION_SECRET_PATHS = [
+  "/test/InstallationConfig",
+  "/test/InstallationConfig/FirstRun",
+  "/test/InstallationConfig/TLS",
+  "/test/InstallationConfig/Connectivity",
+  "/test/InstallationConfig/Security",
+  "/test/InstallationConfig/Municipality",
+  "/test/InstallationConfig/Files",
+  "/test/InstallationConfig/Advanced",
+  "/test/InstallationConfig/GovBrOAuth",
+  "/test/InstallationConfig/Importacao/CNES",
+  "/test/InstallationConfig/Importacao/BolsaFamilia",
+  "/test/InstallationConfig/Transmissao",
+  "/test/InstallationConfig/Transmissao/API",
+];
+
+async function getInstallationConfigSecrets() {
+  const merged = {};
+  for (const secretPath of INSTALLATION_SECRET_PATHS) {
+    Object.assign(merged, await getInfisicalSecrets(secretPath));
+  }
+  return merged;
 }
 
 function redact(value) {
@@ -225,7 +250,7 @@ loadDotEnv(path.join(ROOT, ".env"));
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 const localRuntime = await getInfisicalSecrets("/test");
-const localInstall = await getInfisicalSecrets("/test/InstallationConfig");
+const localInstall = await getInstallationConfigSecrets();
 
 const routes = [
   "/configuracoes/instalacao",
