@@ -1,4 +1,4 @@
-# e-SUS PEC Infisical Variable Reconciliation
+﻿# e-SUS PEC Infisical Variable Reconciliation
 
 ## Scope
 
@@ -15,10 +15,11 @@ Reconciled the e-SUS PEC Infisical project `esus-pec`, environment `dev`, using 
 /test/InstallationConfig/Files
 /test/InstallationConfig/Advanced
 /test/InstallationConfig/GovBrOAuth
-/test/InstallationConfig/Importacao/CNES
-/test/InstallationConfig/Importacao/BolsaFamilia
+/test/InstallationConfig/Importacao
+/test/InstallationConfig/ImportacaoCNES
+/test/InstallationConfig/ImportacaoBolsaFamilia
 /test/InstallationConfig/Transmissao
-/test/InstallationConfig/Transmissao/API
+/test/InstallationConfig/TransmissaoAPI
 /test/Monitoring
 /test/ObjectStorage
 ```
@@ -84,10 +85,11 @@ Monitoring values live under <code>/test/Monitoring</code>:
 - `Files`: PEC file-attachment toggle and directory.
 - `Advanced`: concurrent requests, citizen search, CDS family/property registration, base unification, and server timezone.
 - `GovBrOAuth`: Gov.br OAuth and native TLS fallback variables.
-- `Importacao/CNES`: CNES route, object metadata, and latest import result.
-- `Importacao/BolsaFamilia`: Bolsa Familia route, object metadata, expected vigencia, and latest import result.
+- `Importacao`: empty grouping folder retained after the folder-creation attempt; no managed secret currently belongs here.
+- `ImportacaoCNES`: CNES route, object metadata, and latest import result.
+- `ImportacaoBolsaFamilia`: Bolsa Familia route, object metadata, expected vigencia, and latest import result.
 - `Transmissao`: transmission link route, centralizer metadata, status, and batch-processing time.
-- `Transmissao/API`: API credential desired state and the `CredenciaisIntegracaoOld` expected count.
+- `TransmissaoAPI`: API credential desired state and the `CredenciaisIntegracaoOld` expected count.
 
 ## Reconciliation Result
 
@@ -128,7 +130,11 @@ ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_NAME=
 ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_ACTIVE_ONLY=false
 ```
 
-The subfolder migration is implemented in `Sync-EsusPecInfisicalVariables.ps1` and `Analyze-EsusPecInfisicalVariables.ps1`, but the first non-dry-run attempt stopped before moving secrets because the current token returned HTTP `403` for `/test/InstallationConfig/FirstRun`. No source secret was deleted. Grant create/delete on all `InstallationConfig` subpaths listed above before rerunning the non-dry-run sync.
+The subfolder migration is implemented in `Sync-EsusPecInfisicalVariables.ps1` and `Analyze-EsusPecInfisicalVariables.ps1`, but the first non-dry-run attempt stopped before moving secrets because the current token returned HTTP `403` for secret creation in `/test/InstallationConfig/FirstRun`. No source secret was deleted.
+
+On 2026-06-21, `scripts/esus-pec/Ensure-EsusPecInfisicalFolders.ps1` was added to create folders without creating or moving secrets. Because the token allows creating only direct children of `/test/InstallationConfig`, the CNES, Bolsa Familia, and transmission API targets were flattened to one-level paths. The folder creation then completed with `missingCount=0`.
+
+Grant create/delete for secrets, not only folders, on all direct `InstallationConfig` child paths before rerunning the non-dry-run sync.
 
 Current blocked validation result:
 
@@ -144,10 +150,12 @@ expectedObjectStorageCount=38
 expectedDuplicateNames=0
 plannedSubpathMigrationCreatedCount=110
 plannedSubpathMigrationDeletedCount=104
-pendingSubpathMigrationHttp403=/test/InstallationConfig/FirstRun
+folderEnsureMissingCount=0
+pendingSecretMigrationHttp403=/test/InstallationConfig/FirstRun
 secretValuesPrinted=0
 ```
 
 ## Notes
 
 Empty optional variables remain present as empty values so future automation can distinguish "known but intentionally unset" from "unknown variable name". Automation must still avoid applying optional empty values to PEC.
+

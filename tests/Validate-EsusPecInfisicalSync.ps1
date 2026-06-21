@@ -1,10 +1,11 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $paths = @(
   "scripts/esus-pec/Sync-EsusPecInfisicalVariables.ps1",
   "scripts/esus-pec/Analyze-EsusPecInfisicalVariables.ps1",
+  "scripts/esus-pec/Ensure-EsusPecInfisicalFolders.ps1",
   "docs/esus-pec/2026-06-05-infisical-variable-reconciliation.md",
   "docs/credentials/esus-pec-infisical-secrets.html",
   "config/esus-pec.infisical.env.example"
@@ -29,8 +30,14 @@ $null = [System.Management.Automation.PSParser]::Tokenize(
   (Get-Content -LiteralPath $analyzerPath -Raw),
   [ref]$analyzerErrors
 )
-if ($scriptErrors.Count -gt 0 -or $analyzerErrors.Count -gt 0) {
-  throw "Infisical scripts have parse errors: sync=$($scriptErrors -join '; '); analyzer=$($analyzerErrors -join '; ')"
+$folderPath = Join-Path $root "scripts/esus-pec/Ensure-EsusPecInfisicalFolders.ps1"
+$folderErrors = $null
+$null = [System.Management.Automation.PSParser]::Tokenize(
+  (Get-Content -LiteralPath $folderPath -Raw),
+  [ref]$folderErrors
+)
+if ($scriptErrors.Count -gt 0 -or $analyzerErrors.Count -gt 0 -or $folderErrors.Count -gt 0) {
+  throw "Infisical scripts have parse errors: sync=$($scriptErrors -join '; '); analyzer=$($analyzerErrors -join '; '); folders=$($folderErrors -join '; ')"
 }
 
 $combined = ($paths | ForEach-Object {
@@ -40,9 +47,12 @@ $combined = ($paths | ForEach-Object {
 $requiredFragments = @(
   "Sync-EsusPecInfisicalVariables.ps1",
   "Analyze-EsusPecInfisicalVariables.ps1",
+  "Ensure-EsusPecInfisicalFolders.ps1",
   "/test/InstallationConfig",
   "/test/InstallationConfig/FirstRun",
-  "/test/InstallationConfig/Transmissao/API",
+  "/test/InstallationConfig/ImportacaoCNES",
+  "/test/InstallationConfig/ImportacaoBolsaFamilia",
+  "/test/InstallationConfig/TransmissaoAPI",
   "/test/Monitoring",
   "/test/ObjectStorage",
   "ESUS_PEC_DB_HOST",
@@ -88,7 +98,8 @@ $requiredFragments = @(
   "expectedMisplacedTestKeys=0",
   "plannedSubpathMigrationCreatedCount=110",
   "plannedSubpathMigrationDeletedCount=104",
-  "pendingSubpathMigrationHttp403=/test/InstallationConfig/FirstRun",
+  "folderEnsureMissingCount=0",
+  "pendingSecretMigrationHttp403=/test/InstallationConfig/FirstRun",
   "postSyncDryRunCreatedCount=0",
   "postSyncDryRunDeletedCount=0"
 )
@@ -114,3 +125,4 @@ foreach ($pattern in $forbiddenPatterns) {
 }
 
 Write-Host "e-SUS PEC Infisical sync artifacts are valid."
+

@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$EnvFile = ".env",
   [string]$ExampleFile = "config/esus-pec.infisical.env.example",
   [string]$InfisicalUrl = "http://192.168.1.226:8080",
@@ -98,10 +98,10 @@ function Get-InstallationSecretPaths {
     "$InstallationSecretPath/Files",
     "$InstallationSecretPath/Advanced",
     "$InstallationSecretPath/GovBrOAuth",
-    "$InstallationSecretPath/Importacao/CNES",
-    "$InstallationSecretPath/Importacao/BolsaFamilia",
+    "$InstallationSecretPath/ImportacaoCNES",
+    "$InstallationSecretPath/ImportacaoBolsaFamilia",
     "$InstallationSecretPath/Transmissao",
-    "$InstallationSecretPath/Transmissao/API"
+    "$InstallationSecretPath/TransmissaoAPI"
   )
 }
 
@@ -132,16 +132,16 @@ function Get-DesiredInfisicalPath {
   }
 
   if ($Name -match "^ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_" -or $Name -eq "ESUS_PEC_TRANSMISSAO_CREDENCIAIS_INTEGRACAO_EXPECTED_COUNT") {
-    return "$InstallationSecretPath/Transmissao/API"
+    return "$InstallationSecretPath/TransmissaoAPI"
   }
   if ($Name -match "^ESUS_PEC_TRANSMISSAO_") {
     return "$InstallationSecretPath/Transmissao"
   }
   if ($Name -match "^ESUS_PEC_CNES_") {
-    return "$InstallationSecretPath/Importacao/CNES"
+    return "$InstallationSecretPath/ImportacaoCNES"
   }
   if ($Name -match "^ESUS_PEC_BOLSA_FAMILIA_") {
-    return "$InstallationSecretPath/Importacao/BolsaFamilia"
+    return "$InstallationSecretPath/ImportacaoBolsaFamilia"
   }
   if ($Name -match "^ESUS_PEC_GOVBR_") {
     return "$InstallationSecretPath/GovBrOAuth"
@@ -282,3 +282,4 @@ if (-not [string]::IsNullOrWhiteSpace($outputDirectory)) {
 $json = $report | ConvertTo-Json -Depth 10
 Set-Content -LiteralPath $OutputPath -Value $json -Encoding UTF8
 $json
+

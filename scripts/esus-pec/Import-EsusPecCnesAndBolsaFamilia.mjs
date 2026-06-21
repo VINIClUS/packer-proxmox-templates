@@ -1,4 +1,4 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
 
@@ -139,7 +139,7 @@ async function login(page, baseUrl, username, password) {
   await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1500);
 
-  if ((await page.getByText(/j[aá] est[aá] logado/i).count()) > 0) {
+  if ((await page.getByText(/j[aÃ¡] est[aÃ¡] logado/i).count()) > 0) {
     await page.getByText("Continuar", { exact: true }).click({ timeout: 5000 });
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
@@ -273,10 +273,10 @@ const INSTALLATION_SECRET_PATHS = [
   "/test/InstallationConfig/Files",
   "/test/InstallationConfig/Advanced",
   "/test/InstallationConfig/GovBrOAuth",
-  "/test/InstallationConfig/Importacao/CNES",
-  "/test/InstallationConfig/Importacao/BolsaFamilia",
+  "/test/InstallationConfig/ImportacaoCNES",
+  "/test/InstallationConfig/ImportacaoBolsaFamilia",
   "/test/InstallationConfig/Transmissao",
-  "/test/InstallationConfig/Transmissao/API",
+  "/test/InstallationConfig/TransmissaoAPI",
 ];
 
 async function getInstallationConfigSecrets() {
@@ -345,14 +345,14 @@ try {
   }
 
   results.completedAt = new Date().toISOString();
-  await upsertMetadata("/test/InstallationConfig/Importacao/CNES", {
+  await upsertMetadata("/test/InstallationConfig/ImportacaoCNES", {
     ESUS_PEC_CNES_IMPORT_LAST_RUN_AT: results.completedAt,
     ESUS_PEC_CNES_IMPORT_LAST_STATUS: results.cnes?.processo?.status || "",
     ESUS_PEC_CNES_IMPORT_LAST_IMPORT_ID: results.cnes?.id || "",
     ESUS_PEC_CNES_IMPORT_LAST_PROCESS_ID: results.cnes?.processo?.id || "",
     ESUS_PEC_CNES_IMPORT_LAST_MUNICIPALITY_ID: String(municipalityId),
   });
-  await upsertMetadata("/test/InstallationConfig/Importacao/BolsaFamilia", {
+  await upsertMetadata("/test/InstallationConfig/ImportacaoBolsaFamilia", {
     ESUS_PEC_BOLSA_FAMILIA_IMPORT_LAST_RUN_AT: results.completedAt,
     ESUS_PEC_BOLSA_FAMILIA_IMPORT_LAST_STATUS: results.bolsaFamilia?.statusImportacao || "",
     ESUS_PEC_BOLSA_FAMILIA_IMPORT_LAST_IMPORT_ID: results.bolsaFamilia?.id || "",
@@ -363,3 +363,4 @@ try {
 } finally {
   await browser.close();
 }
+

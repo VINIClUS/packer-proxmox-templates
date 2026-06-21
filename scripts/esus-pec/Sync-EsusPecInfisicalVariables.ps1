@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ConfigFile = "config/Proxmox.pkrvars.hcl",
   [int]$Ctid = 133,
   [string]$InfisicalUrl = "http://192.168.1.226:8080",
@@ -248,10 +248,10 @@ function Get-InstallationSecretPaths {
     "$InstallationSecretPath/Files",
     "$InstallationSecretPath/Advanced",
     "$InstallationSecretPath/GovBrOAuth",
-    "$InstallationSecretPath/Importacao/CNES",
-    "$InstallationSecretPath/Importacao/BolsaFamilia",
+    "$InstallationSecretPath/ImportacaoCNES",
+    "$InstallationSecretPath/ImportacaoBolsaFamilia",
     "$InstallationSecretPath/Transmissao",
-    "$InstallationSecretPath/Transmissao/API"
+    "$InstallationSecretPath/TransmissaoAPI"
   )
 }
 
@@ -272,10 +272,10 @@ function Get-DesiredInfisicalPath {
   if ($Name -match "^ESUS_PEC_OBJECT_STORAGE_" -or $Name -match "^ESUS_PEC_WALG_") { return $ObjectStorageSecretPath }
   if ($Name -eq "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD" -or $Name -in @("grafana_url", "grafana_token")) { return $MonitoringSecretPath }
   if ($Name -match "^ESUS_PEC_DB_" -or $Name -in $runtimeExactNames) { return $RuntimeSecretPath }
-  if ($Name -match "^ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_" -or $Name -eq "ESUS_PEC_TRANSMISSAO_CREDENCIAIS_INTEGRACAO_EXPECTED_COUNT") { return "$InstallationSecretPath/Transmissao/API" }
+  if ($Name -match "^ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_" -or $Name -eq "ESUS_PEC_TRANSMISSAO_CREDENCIAIS_INTEGRACAO_EXPECTED_COUNT") { return "$InstallationSecretPath/TransmissaoAPI" }
   if ($Name -match "^ESUS_PEC_TRANSMISSAO_") { return "$InstallationSecretPath/Transmissao" }
-  if ($Name -match "^ESUS_PEC_CNES_") { return "$InstallationSecretPath/Importacao/CNES" }
-  if ($Name -match "^ESUS_PEC_BOLSA_FAMILIA_") { return "$InstallationSecretPath/Importacao/BolsaFamilia" }
+  if ($Name -match "^ESUS_PEC_CNES_") { return "$InstallationSecretPath/ImportacaoCNES" }
+  if ($Name -match "^ESUS_PEC_BOLSA_FAMILIA_") { return "$InstallationSecretPath/ImportacaoBolsaFamilia" }
   if ($Name -match "^ESUS_PEC_GOVBR_") { return "$InstallationSecretPath/GovBrOAuth" }
   if ($Name -match "^ESUS_PEC_TLS_") { return "$InstallationSecretPath/TLS" }
   if ($Name -in @("ESUS_PEC_INTERNET_ENABLED", "ESUS_PEC_CADSUS_ENABLED", "ESUS_PEC_CADSUS_DISABLE_INTERVAL", "ESUS_PEC_HORUS_ENABLED", "ESUS_PEC_HORUS_DISABLE_INTERVAL", "ESUS_PEC_VIDEOCHAMADAS_ENABLED", "ESUS_PEC_AGENDA_ONLINE_ENABLED", "ESUS_PEC_SMTP_ENABLED", "ESUS_PEC_SMTP_FROM_EMAIL", "ESUS_PEC_SMTP_USE_LOGIN_AS_SENDER")) { return "$InstallationSecretPath/Connectivity" }
@@ -491,3 +491,4 @@ foreach ($path in $installationPaths) {
   created = @($created)
   deleted = @($deleted)
 } | ConvertTo-Json -Depth 6
+

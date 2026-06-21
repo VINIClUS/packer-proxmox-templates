@@ -1,4 +1,4 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
 
@@ -51,10 +51,10 @@ const INSTALLATION_SECRET_PATHS = [
   "/test/InstallationConfig/Files",
   "/test/InstallationConfig/Advanced",
   "/test/InstallationConfig/GovBrOAuth",
-  "/test/InstallationConfig/Importacao/CNES",
-  "/test/InstallationConfig/Importacao/BolsaFamilia",
+  "/test/InstallationConfig/ImportacaoCNES",
+  "/test/InstallationConfig/ImportacaoBolsaFamilia",
   "/test/InstallationConfig/Transmissao",
-  "/test/InstallationConfig/Transmissao/API",
+  "/test/InstallationConfig/TransmissaoAPI",
 ];
 
 async function getInstallationConfigSecrets() {
@@ -136,13 +136,13 @@ async function login(page, baseUrl, username, password) {
   await page.locator(passwordSelector).first().press("Enter", { timeout: 2000 }).catch(() => {});
   await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1500);
-  if ((await page.getByText("Você já está logado em outra sessão", { exact: false }).count()) > 0) {
+  if ((await page.getByText("VocÃª jÃ¡ estÃ¡ logado em outra sessÃ£o", { exact: false }).count()) > 0) {
     await page.getByText("Continuar", { exact: true }).click({ timeout: 5000 });
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
   }
   await page.waitForTimeout(3500);
   if ((await page.getByText("Escolha um acesso para continuar", { exact: false }).count()) > 0) {
-    await page.getByText("Administrador da Instalação", { exact: true }).first().click({ timeout: 10000 });
+    await page.getByText("Administrador da InstalaÃ§Ã£o", { exact: true }).first().click({ timeout: 10000 });
     await page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(3500);
   }
@@ -316,3 +316,4 @@ try {
 } finally {
   await browser.close();
 }
+
