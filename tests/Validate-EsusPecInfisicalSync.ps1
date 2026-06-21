@@ -36,8 +36,28 @@ $null = [System.Management.Automation.PSParser]::Tokenize(
   (Get-Content -LiteralPath $folderPath -Raw),
   [ref]$folderErrors
 )
-if ($scriptErrors.Count -gt 0 -or $analyzerErrors.Count -gt 0 -or $folderErrors.Count -gt 0) {
-  throw "Infisical scripts have parse errors: sync=$($scriptErrors -join '; '); analyzer=$($analyzerErrors -join '; '); folders=$($folderErrors -join '; ')"
+$tokenLoaderScriptPaths = @(
+  "scripts/esus-pec/Configure-EsusPecGovBrOAuth.ps1",
+  "scripts/esus-pec/Configure-EsusPecWalGBackups.ps1",
+  "scripts/esus-pec/Enable-EsusPecLxcTls.ps1",
+  "scripts/esus-pec/Provision-EsusPecMinioObjectStorage.ps1",
+  "scripts/esus-pec/Restore-EsusPecBackupFromMinio.ps1",
+  "scripts/esus-pec/Upload-EsusPecBackupToMinio.ps1",
+  "scripts/esus-pec/Upload-EsusPecImportArtifactToMinio.ps1"
+)
+$tokenLoaderErrors = @()
+foreach ($relativePath in $tokenLoaderScriptPaths) {
+  $errors = $null
+  $null = [System.Management.Automation.PSParser]::Tokenize(
+    (Get-Content -LiteralPath (Join-Path $root $relativePath) -Raw),
+    [ref]$errors
+  )
+  if ($errors.Count -gt 0) {
+    $tokenLoaderErrors += "$relativePath=$($errors -join '; ')"
+  }
+}
+if ($scriptErrors.Count -gt 0 -or $analyzerErrors.Count -gt 0 -or $folderErrors.Count -gt 0 -or $tokenLoaderErrors.Count -gt 0) {
+  throw "Infisical scripts have parse errors: sync=$($scriptErrors -join '; '); analyzer=$($analyzerErrors -join '; '); folders=$($folderErrors -join '; '); tokenLoaders=$($tokenLoaderErrors -join '; ')"
 }
 
 $combined = ($paths | ForEach-Object {
@@ -108,6 +128,18 @@ $requiredFragments = @(
   "INFISICAL_WORKSPACE_ID",
   "INFISICAL_PROJECT_SLUG",
   "INFISICAL_ENVIRONMENT",
+  "finalRuntimeSecretCount=15",
+  "finalInstallationConfigSecretCount=110",
+  "finalMonitoringSecretCount=3",
+  "finalObjectStorageSecretCount=38",
+  "finalMissingCount=0",
+  "finalMisplacedCount=0",
+  "finalUnmanagedCount=0",
+  "finalDuplicateNames=0",
+  "finalPostSyncDryRunCreatedCount=0",
+  "finalPostSyncDryRunUpdatedCount=0",
+  "finalPostSyncDryRunDeletedCount=0",
+  "tokenLoaderSupportsEnvFileInfisicalToken=true",
   "postSyncDryRunCreatedCount=0",
   "postSyncDryRunDeletedCount=0"
 )

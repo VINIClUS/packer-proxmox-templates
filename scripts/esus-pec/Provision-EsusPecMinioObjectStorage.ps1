@@ -83,8 +83,13 @@ function Get-InfisicalToken {
   if ($env:infisical_secret_key) { return $env:infisical_secret_key }
   if ($env:INFISICAL_TOKEN) { return $env:INFISICAL_TOKEN }
   if (Test-Path -LiteralPath ".env") {
-    $line = Get-Content -LiteralPath ".env" | Where-Object { $_ -match "^infisical_secret_key=" } | Select-Object -First 1
-    if ($line) { return (($line -split "=", 2)[1]).Trim() }
+    foreach ($candidate in @("infisical_secret_key", "INFISICAL_TOKEN")) {
+      $line = Get-Content -LiteralPath ".env" | Where-Object { $_ -match ("^" + [regex]::Escape($candidate) + "=") } | Select-Object -First 1
+      if ($line) {
+        $value = (($line -split "=", 2)[1]).Trim().Trim('"').Trim("'")
+        if (-not [string]::IsNullOrWhiteSpace($value)) { return $value }
+      }
+    }
   }
   throw "Infisical token not found. Set infisical_secret_key in .env or INFISICAL_TOKEN."
 }
