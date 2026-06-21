@@ -9,6 +9,7 @@
   [string]$InstallationSecretPath = "/test/InstallationConfig",
   [string]$MonitoringSecretPath = "/test/Monitoring",
   [string]$ObjectStorageSecretPath = "/test/ObjectStorage",
+  [switch]$AllowBootstrapEmptySources,
   [switch]$DryRun
 )
 
@@ -379,8 +380,10 @@ function Reconcile-ExpectedSecrets {
         }
         $ExistingByPath[$path][$name] = $value
       } else {
-        $action = Set-InfisicalSecret -SecretPath $path -Name $name -Value $value -Headers $Headers -Exists $true
-        if ($action -eq "created") { $Created.Add("$path/$name") } else { $Updated.Add("$path/$name") }
+        if ([string]$ExistingByPath[$path][$name] -ne $value) {
+          $action = Set-InfisicalSecret -SecretPath $path -Name $name -Value $value -Headers $Headers -Exists $true
+          if ($action -eq "created") { $Created.Add("$path/$name") } else { $Updated.Add("$path/$name") }
+        }
       }
     }
   }
@@ -400,12 +403,6 @@ $managedPaths = @($RuntimeSecretPath) + $installationPaths + @($MonitoringSecret
 $existingByPath = @{}
 foreach ($path in $managedPaths) {
   $existingByPath[$path] = Get-InfisicalSecrets -SecretPath $path -Headers $headers
-}
-
-if (-not $DryRun) {
-  foreach ($path in $managedPaths) {
-    Test-InfisicalSecretPathWritable -SecretPath $path -Headers $headers
-  }
 }
 
 $existingRuntime = $existingByPath[$RuntimeSecretPath]
@@ -441,6 +438,19 @@ foreach ($entry in $exampleValues.GetEnumerator()) {
   if ($desiredPath -eq $RuntimeSecretPath -and $expectedByPath[$RuntimeSecretPath].ContainsKey($entry.Key)) { continue }
   $value = Get-ExistingSecretValueFromSources -Name $entry.Key -Sources $allSources -Default ([string]$entry.Value)
   Add-Expected -Target $expectedByPath[$desiredPath] -Name $entry.Key -Value $value
+}
+
+if (-not $DryRun -and -not $AllowBootstrapEmptySources) {
+  if ($existingRuntime.Count -eq 0 -and $expectedByPath[$RuntimeSecretPath].Count -gt 0) {
+    throw "Refusing to sync because '$RuntimeSecretPath' is readable but has zero visible secrets. Restore token read access or rerun with -AllowBootstrapEmptySources only after confirming a deliberate bootstrap."
+  }
+  $expectedInstallVisibleCount = 0
+  foreach ($path in $installationPaths) {
+    $expectedInstallVisibleCount += $expectedByPath[$path].Count
+  }
+  if ($existingInstall.Count -eq 0 -and $expectedInstallVisibleCount -gt 0) {
+    throw "Refusing to sync because '$InstallationSecretPath' and its managed subfolders have zero visible secrets. Restore token read access before moving existing InstallationConfig values."
+  }
 }
 
 $allowedByPath = @{}

@@ -136,6 +136,39 @@ On 2026-06-21, `scripts/esus-pec/Ensure-EsusPecInfisicalFolders.ps1` was added t
 
 Grant create/delete for secrets, not only folders, on all direct `InstallationConfig` child paths before rerunning the non-dry-run sync.
 
+After the token update, a new non-dry-run attempt was deliberately stopped by the sync guard because the token returned HTTP `200` but exposed zero visible secrets under `/test` and under every `InstallationConfig` path. The same token still exposed `/test/Monitoring` with 3 secrets and `/test/ObjectStorage` with 38 secrets, so this is a source-path visibility problem rather than a network failure.
+
+Required local `.env` entries for the Infisical tooling:
+
+```text
+infisical_secret_key=<token with read/create/update/delete for the paths below>
+INFISICAL_URL=http://192.168.1.226:8080
+INFISICAL_WORKSPACE_ID=2c83cfe9-e794-4961-977d-23000ae14461
+INFISICAL_PROJECT_SLUG=esus-pec-z-px-c
+INFISICAL_ENVIRONMENT=dev
+```
+
+Required Infisical secret permissions before the next migration attempt:
+
+```text
+/test
+/test/InstallationConfig
+/test/InstallationConfig/FirstRun
+/test/InstallationConfig/TLS
+/test/InstallationConfig/Connectivity
+/test/InstallationConfig/Security
+/test/InstallationConfig/Municipality
+/test/InstallationConfig/Files
+/test/InstallationConfig/Advanced
+/test/InstallationConfig/GovBrOAuth
+/test/InstallationConfig/ImportacaoCNES
+/test/InstallationConfig/ImportacaoBolsaFamilia
+/test/InstallationConfig/Transmissao
+/test/InstallationConfig/TransmissaoAPI
+```
+
+Do not use `-AllowBootstrapEmptySources` unless the old source secrets were intentionally removed and the operator has confirmed that blank/default bootstrap values are acceptable. The normal migration must preserve existing values by reading the source paths first.
+
 Current blocked validation result:
 
 ```text
@@ -152,6 +185,9 @@ plannedSubpathMigrationCreatedCount=110
 plannedSubpathMigrationDeletedCount=104
 folderEnsureMissingCount=0
 pendingSecretMigrationHttp403=/test/InstallationConfig/FirstRun
+postTokenUpdateVisibleTestSecretCount=0
+postTokenUpdateVisibleInstallationSecretCount=0
+syncGuard=Refusing to sync because /test is readable but has zero visible secrets
 secretValuesPrinted=0
 ```
 

@@ -100,6 +100,14 @@ $requiredFragments = @(
   "plannedSubpathMigrationDeletedCount=104",
   "folderEnsureMissingCount=0",
   "pendingSecretMigrationHttp403=/test/InstallationConfig/FirstRun",
+  "postTokenUpdateVisibleTestSecretCount=0",
+  "postTokenUpdateVisibleInstallationSecretCount=0",
+  "syncGuard=Refusing to sync because /test is readable but has zero visible secrets",
+  "AllowBootstrapEmptySources",
+  "INFISICAL_URL",
+  "INFISICAL_WORKSPACE_ID",
+  "INFISICAL_PROJECT_SLUG",
+  "INFISICAL_ENVIRONMENT",
   "postSyncDryRunCreatedCount=0",
   "postSyncDryRunDeletedCount=0"
 )
