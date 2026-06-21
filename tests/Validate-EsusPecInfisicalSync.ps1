@@ -6,6 +6,7 @@ $paths = @(
   "scripts/esus-pec/Sync-EsusPecInfisicalVariables.ps1",
   "scripts/esus-pec/Analyze-EsusPecInfisicalVariables.ps1",
   "scripts/esus-pec/Ensure-EsusPecInfisicalFolders.ps1",
+  "scripts/common/InfisicalEndpoint.ps1",
   "docs/esus-pec/2026-06-05-infisical-variable-reconciliation.md",
   "docs/credentials/esus-pec-infisical-secrets.html",
   "config/esus-pec.infisical.env.example"
@@ -37,6 +38,7 @@ $null = [System.Management.Automation.PSParser]::Tokenize(
   [ref]$folderErrors
 )
 $tokenLoaderScriptPaths = @(
+  "scripts/common/InfisicalEndpoint.ps1",
   "scripts/esus-pec/Configure-EsusPecGovBrOAuth.ps1",
   "scripts/esus-pec/Configure-EsusPecWalGBackups.ps1",
   "scripts/esus-pec/Enable-EsusPecLxcTls.ps1",
@@ -124,6 +126,7 @@ $requiredFragments = @(
   "postTokenUpdateVisibleInstallationSecretCount=0",
   "syncGuard=Refusing to sync because /test is readable but has zero visible secrets",
   "AllowBootstrapEmptySources",
+  "Resolve-InfisicalUrl",
   "INFISICAL_URL",
   "INFISICAL_WORKSPACE_ID",
   "INFISICAL_PROJECT_SLUG",

@@ -11,6 +11,9 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
+$infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
+$InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
 
 function Get-EnvFileValues {
   param([Parameter(Mandatory = $true)][string]$Path)

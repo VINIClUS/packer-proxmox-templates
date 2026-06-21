@@ -17,6 +17,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
+$infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
+$InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
 
 $postgresExporterVersion = "0.19.1"
 $postgresExporterSha256 = "229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0"

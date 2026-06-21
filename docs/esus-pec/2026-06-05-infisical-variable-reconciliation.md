@@ -171,7 +171,7 @@ Do not use `-AllowBootstrapEmptySources` unless the old source secrets were inte
 
 After the token was corrected again and local variables were added, the normal sync was rerun against the reachable Infisical endpoint. The migration created 110 destination entries, removed 104 old-path entries, and left `/test`, `/test/Monitoring`, and `/test/ObjectStorage` unchanged. A follow-up analyzer run reported zero missing, zero misplaced, zero unmanaged, and zero duplicate names across all managed paths. A follow-up dry-run reported zero creates, zero updates, and zero deletes.
 
-The PowerShell Infisical token loaders now accept either `infisical_secret_key` or `INFISICAL_TOKEN` from the process environment or from local `.env`, so operators do not need to duplicate token names. Keep `INFISICAL_URL` pointed at a reachable Infisical base URL; the successful migration used the project endpoint `http://192.168.1.226:8080`.
+The Infisical token loaders now accept either `infisical_secret_key` or `INFISICAL_TOKEN` from the process environment or from local `.env`, so operators do not need to duplicate token names. Scripts resolve `INFISICAL_URL` from the process environment first, local `.env` second, and the explicit LAN fallback `http://192.168.1.226:8080` last.
 
 Current blocked validation result:
 

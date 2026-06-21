@@ -16,6 +16,10 @@ function loadDotEnv(filePath) {
   }
 }
 
+function resolveInfisicalUrl() {
+  return (process.env.INFISICAL_URL || "http://192.168.1.226:8080").trim().replace(/\/+$/, "");
+}
+
 function parseArgs(argv) {
   const args = {
     cnesFile: "XmlParaESUS31_354130.zip",
@@ -41,7 +45,7 @@ async function getInfisicalSecrets(secretPath) {
   const token = process.env.infisical_secret_key || process.env.INFISICAL_TOKEN;
   if (!token) throw new Error("Infisical token not found.");
 
-  const baseUrl = process.env.INFISICAL_URL || "http://192.168.1.226:8080";
+  const baseUrl = resolveInfisicalUrl();
   const workspaceId = process.env.INFISICAL_WORKSPACE_ID || "2c83cfe9-e794-4961-977d-23000ae14461";
   const environment = process.env.INFISICAL_ENVIRONMENT || "dev";
   const url = new URL("/api/v3/secrets/raw", baseUrl);
@@ -58,7 +62,7 @@ async function getInfisicalSecrets(secretPath) {
 
 async function setInfisicalSecret(secretPath, name, value, exists) {
   const token = process.env.infisical_secret_key || process.env.INFISICAL_TOKEN;
-  const baseUrl = process.env.INFISICAL_URL || "http://192.168.1.226:8080";
+  const baseUrl = resolveInfisicalUrl();
   const workspaceId = process.env.INFISICAL_WORKSPACE_ID || "2c83cfe9-e794-4961-977d-23000ae14461";
   const projectSlug = process.env.INFISICAL_PROJECT_SLUG || "esus-pec-z-px-c";
   const environment = process.env.INFISICAL_ENVIRONMENT || "dev";
