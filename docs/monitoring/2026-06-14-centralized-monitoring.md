@@ -156,9 +156,9 @@ not found` during service startup in this CT.
 ## Infisical Grafana Env Sync
 
 The appropriate Infisical location for Grafana dashboard publishing variables is
-`/test/InstallationConfig` in project `esus-pec-z-px-c`, environment `dev`.
-This reuses the existing writable configuration path for the e-SUS PEC lab
-environment and avoids requiring a new secret-folder permission. Tracked
+`/test/Monitoring` in project `esus-pec-z-px-c`, environment `dev`.
+This dedicated path keeps monitoring credentials separate from PEC installation
+configuration after the 2026-06-21 token expansion. Tracked
 placeholders are in `config/esus-pec.infisical.env.example`.
 
 Sync the non-secret URL and, when present locally, the token value:
@@ -253,7 +253,7 @@ The PostgreSQL exporter is optional. If PostgreSQL exporter access is needed,
 run `scripts/monitoring/Install-MonitoringTargetAgent.ps1` with
 `-ConfigurePostgresExporter`. The exporter uses the dedicated database user
 `prometheus_exporter`; the provisioner generates the password when needed,
-stores it in Infisical `/test/InstallationConfig` as
+stores it in Infisical `/test/Monitoring` as
 `ESUS_PEC_POSTGRES_EXPORTER_PASSWORD`, and writes the secret only to the
 root-only `/etc/monitoring/postgres-exporter-password` file on CT `133`,
 consumed by `DATA_SOURCE_PASS_FILE`. Keep only the variable name and storage
@@ -400,12 +400,13 @@ Loki evidence collected on 2026-06-14:
 Grafana dashboard and Infisical env evidence collected on 2026-06-14:
 
 - `scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1`: synced
-  `/test/InstallationConfig/grafana_url` and
-  `/test/InstallationConfig/grafana_token`; output reported both values present
+  `/test/Monitoring/grafana_url` and
+  `/test/Monitoring/grafana_token`; output reported both values present
   without printing either value.
 - A dedicated `/test/Monitoring/Grafana` Infisical path was evaluated first,
-  but the current token could not create that secret-folder tree. The writable
-  path `/test/InstallationConfig` is therefore the current operational location.
+  but the then-current token could not create that secret-folder tree. On
+  2026-06-21, the expanded token allowed `/test/Monitoring` to become the
+  current operational location.
 - `scripts/monitoring/Publish-GrafanaDashboards.ps1`: Grafana database health
   `ok`; folder UID `esus-pec-monitoring`; `4` dashboards updated.
 - Dashboard JSON validation: all files under `scripts/monitoring/dashboards`

@@ -7,6 +7,8 @@ param(
   [string]$InfisicalEnvironment = "dev",
   [string]$RuntimeSecretPath = "/test",
   [string]$InstallationSecretPath = "/test/InstallationConfig",
+  [string]$MonitoringSecretPath = "/test/Monitoring",
+  [string]$ObjectStorageSecretPath = "/test/ObjectStorage",
   [switch]$DryRun
 )
 
@@ -69,12 +71,60 @@ function Get-InfisicalSecrets {
   )
 
   $uri = "$InfisicalUrl/api/v3/secrets/raw?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&secretPath=$([uri]::EscapeDataString($SecretPath))"
-  $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers -TimeoutSec 30
+  try {
+    $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers -TimeoutSec 30
+  } catch {
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
+      return @{}
+    }
+    throw
+  }
   $result = @{}
   foreach ($secret in @($response.secrets)) {
     $result[[string]$secret.secretKey] = [string]$secret.secretValue
   }
   return $result
+}
+
+function Ensure-InfisicalFolderPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$SecretPath,
+    [Parameter(Mandatory = $true)][hashtable]$Headers
+  )
+
+  $segments = @($SecretPath.Trim("/") -split "/" | Where-Object { $_ -ne "" })
+  if ($segments.Count -eq 0) {
+    return
+  }
+
+  $parent = "/"
+  foreach ($segment in $segments) {
+    $listUri = "$InfisicalUrl/api/v1/folders?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&path=$([uri]::EscapeDataString($parent))"
+    $folders = Invoke-RestMethod -Method Get -Uri $listUri -Headers $Headers -TimeoutSec 30
+
+    if (@($folders.folders | Where-Object { $_.name -eq $segment }).Count -eq 0) {
+      $body = @{
+        workspaceId = $InfisicalWorkspaceId
+        environment = $InfisicalEnvironment
+        name = $segment
+        path = $parent
+      } | ConvertTo-Json -Compress
+
+      try {
+        $null = Invoke-RestMethod -Method Post -Uri "$InfisicalUrl/api/v1/folders" -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+      } catch {
+        if (-not $_.Exception.Response -or $_.Exception.Response.StatusCode.value__ -ne 409) {
+          throw
+        }
+      }
+    }
+
+    if ($parent -eq "/") {
+      $parent = "/$segment"
+    } else {
+      $parent = "$parent/$segment"
+    }
+  }
 }
 
 function Set-InfisicalSecret {
@@ -99,6 +149,7 @@ function Set-InfisicalSecret {
   } | ConvertTo-Json -Depth 5
 
   if (-not $Exists) {
+    Ensure-InfisicalFolderPath -SecretPath $SecretPath -Headers $Headers
     $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
     return "created"
   }
@@ -111,6 +162,7 @@ function Set-InfisicalSecret {
     if ($status -ne 404) {
       throw "Failed to update Infisical secret $Name in $SecretPath. HTTP status: $status"
     }
+    Ensure-InfisicalFolderPath -SecretPath $SecretPath -Headers $Headers
     $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
     return "created"
   }
@@ -191,6 +243,21 @@ function Get-ExistingSecretValue {
   return $Default
 }
 
+function Get-ExistingSecretValueFromSources {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][hashtable[]]$Sources,
+    [AllowEmptyString()][string]$Default = ""
+  )
+
+  foreach ($source in $Sources) {
+    if ($source.ContainsKey($Name)) {
+      return [string]$source[$Name]
+    }
+  }
+  return $Default
+}
+
 function Get-ExampleEnvValues {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -231,14 +298,20 @@ function Get-DesiredInfisicalPath {
     "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD"
   )
 
+  if ($Name -match "^ESUS_PEC_OBJECT_STORAGE_" -or $Name -match "^ESUS_PEC_WALG_") {
+    return $ObjectStorageSecretPath
+  }
+
+  if ($Name -eq "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD" -or $Name -in @("grafana_url", "grafana_token")) {
+    return $MonitoringSecretPath
+  }
+
   if ($Name -match "^ESUS_PEC_DB_" -or
-      $Name -match "^ESUS_PEC_OBJECT_STORAGE_" -or
-      $Name -match "^ESUS_PEC_WALG_" -or
       $Name -in $runtimeExactNames) {
     return $RuntimeSecretPath
   }
 
-  if ($Name -match "^ESUS_PEC_" -or $Name -in @("grafana_url", "grafana_token")) {
+  if ($Name -match "^ESUS_PEC_") {
     return $InstallationSecretPath
   }
 
@@ -300,13 +373,19 @@ $headers = @{ Authorization = "Bearer $token" }
 $sameSecretPath = $RuntimeSecretPath -eq $InstallationSecretPath
 $existingRuntime = Get-InfisicalSecrets -SecretPath $RuntimeSecretPath -Headers $headers
 $existingInstall = if ($sameSecretPath) { $existingRuntime } else { Get-InfisicalSecrets -SecretPath $InstallationSecretPath -Headers $headers }
+$existingMonitoring = Get-InfisicalSecrets -SecretPath $MonitoringSecretPath -Headers $headers
+$existingObjectStorage = Get-InfisicalSecrets -SecretPath $ObjectStorageSecretPath -Headers $headers
 
 if (-not $DryRun) {
   Test-InfisicalSecretPathWritable -SecretPath $RuntimeSecretPath -Headers $headers
   if (-not $sameSecretPath) {
     Test-InfisicalSecretPathWritable -SecretPath $InstallationSecretPath -Headers $headers
   }
+  Test-InfisicalSecretPathWritable -SecretPath $MonitoringSecretPath -Headers $headers
+  Test-InfisicalSecretPathWritable -SecretPath $ObjectStorageSecretPath -Headers $headers
 }
+
+$allSources = @($existingRuntime, $existingInstall, $existingMonitoring, $existingObjectStorage)
 
 $expectedRuntime = @{}
 foreach ($entry in (Get-RemotePecDatabaseValues -Target $sshTarget -Port $sshPort -KeyFile $sshKey -ContainerId $Ctid).GetEnumerator()) {
@@ -397,6 +476,8 @@ foreach ($entry in $installDefaults.GetEnumerator()) {
 }
 
 $exampleValues = Get-ExampleEnvValues -Path "config/esus-pec.infisical.env.example"
+$expectedMonitoring = @{}
+$expectedObjectStorage = @{}
 foreach ($entry in $exampleValues.GetEnumerator()) {
   $desiredPath = Get-DesiredInfisicalPath -Name $entry.Key
   if ($null -eq $desiredPath) {
@@ -405,21 +486,35 @@ foreach ($entry in $exampleValues.GetEnumerator()) {
 
   if ($desiredPath -eq $RuntimeSecretPath) {
     if (-not $expectedRuntime.ContainsKey($entry.Key)) {
-      $value = Get-ExistingSecretValue -Name $entry.Key -Primary $existingRuntime -Fallback $existingInstall -Default ([string]$entry.Value)
+      $value = Get-ExistingSecretValueFromSources -Name $entry.Key -Sources $allSources -Default ([string]$entry.Value)
       Add-Expected -Target $expectedRuntime -Name $entry.Key -Value $value
     }
     continue
   }
 
+  if ($desiredPath -eq $MonitoringSecretPath) {
+    $value = Get-ExistingSecretValueFromSources -Name $entry.Key -Sources @($existingMonitoring, $existingInstall, $existingRuntime, $existingObjectStorage) -Default ([string]$entry.Value)
+    Add-Expected -Target $expectedMonitoring -Name $entry.Key -Value $value
+    continue
+  }
+
+  if ($desiredPath -eq $ObjectStorageSecretPath) {
+    $value = Get-ExistingSecretValueFromSources -Name $entry.Key -Sources @($existingObjectStorage, $existingRuntime, $existingInstall, $existingMonitoring) -Default ([string]$entry.Value)
+    Add-Expected -Target $expectedObjectStorage -Name $entry.Key -Value $value
+    continue
+  }
+
   if (-not $expectedInstall.ContainsKey($entry.Key)) {
-    $value = Get-ExistingSecretValue -Name $entry.Key -Primary $existingInstall -Fallback $existingRuntime -Default ([string]$entry.Value)
+    $value = Get-ExistingSecretValueFromSources -Name $entry.Key -Sources @($existingInstall, $existingRuntime, $existingMonitoring, $existingObjectStorage) -Default ([string]$entry.Value)
     Add-Expected -Target $expectedInstall -Name $entry.Key -Value $value
   }
 }
 
 $runtimeAllowed = [string[]]$expectedRuntime.Keys
 $installAllowed = [string[]]$expectedInstall.Keys
-$combinedAllowed = @($runtimeAllowed + $installAllowed | Sort-Object -Unique)
+$monitoringAllowed = [string[]]$expectedMonitoring.Keys
+$objectStorageAllowed = [string[]]$expectedObjectStorage.Keys
+$combinedAllowed = @($runtimeAllowed + $installAllowed + $monitoringAllowed + $objectStorageAllowed | Sort-Object -Unique)
 $preserveSourceValueOnMove = @(
   "ESUS_PEC_SMTP_HOST",
   "ESUS_PEC_SMTP_PORT",
@@ -436,6 +531,8 @@ if ($sameSecretPath) {
   $runtimeExtra = @($existingRuntime.Keys | Where-Object { $_ -notin $runtimeAllowed -and (Test-ManagedInfisicalName -Name $_) } | Sort-Object)
   $installExtra = @($existingInstall.Keys | Where-Object { $_ -notin $installAllowed -and (Test-ManagedInfisicalName -Name $_) } | Sort-Object)
 }
+$monitoringExtra = @($existingMonitoring.Keys | Where-Object { $_ -notin $monitoringAllowed -and (Test-ManagedInfisicalName -Name $_) } | Sort-Object)
+$objectStorageExtra = @($existingObjectStorage.Keys | Where-Object { $_ -notin $objectStorageAllowed -and (Test-ManagedInfisicalName -Name $_) } | Sort-Object)
 
 $created = New-Object System.Collections.Generic.List[string]
 $updated = New-Object System.Collections.Generic.List[string]
@@ -474,6 +571,76 @@ foreach ($entry in $expectedInstall.GetEnumerator()) {
   }
 }
 
+foreach ($entry in $expectedMonitoring.GetEnumerator()) {
+  if ($DryRun) {
+    if (-not $existingMonitoring.ContainsKey($entry.Key)) { $created.Add("$MonitoringSecretPath/$($entry.Key)") }
+    foreach ($sourcePath in @($RuntimeSecretPath, $InstallationSecretPath, $ObjectStorageSecretPath)) {
+      $sourceMap = if ($sourcePath -eq $RuntimeSecretPath) { $existingRuntime } elseif ($sourcePath -eq $InstallationSecretPath) { $existingInstall } else { $existingObjectStorage }
+      if ($sourceMap.ContainsKey($entry.Key)) { $deleted.Add("$sourcePath/$($entry.Key)") }
+    }
+  } else {
+    if (-not $existingMonitoring.ContainsKey($entry.Key)) {
+      $sourcePath = $null
+      foreach ($candidate in @(
+          @{ Path = $InstallationSecretPath; Values = $existingInstall },
+          @{ Path = $RuntimeSecretPath; Values = $existingRuntime },
+          @{ Path = $ObjectStorageSecretPath; Values = $existingObjectStorage }
+        )) {
+        if ($candidate["Values"].ContainsKey($entry.Key)) {
+          $sourcePath = $candidate["Path"]
+          break
+        }
+      }
+      if ($sourcePath) {
+        Move-InfisicalSecret -SourcePath $sourcePath -TargetPath $MonitoringSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers
+        $created.Add("$MonitoringSecretPath/$($entry.Key)")
+        $deleted.Add("$sourcePath/$($entry.Key)")
+      } else {
+        $action = Set-InfisicalSecret -SecretPath $MonitoringSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $false
+        if ($action -eq "created") { $created.Add("$MonitoringSecretPath/$($entry.Key)") } else { $updated.Add("$MonitoringSecretPath/$($entry.Key)") }
+      }
+    } else {
+      $action = Set-InfisicalSecret -SecretPath $MonitoringSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $true
+      if ($action -eq "created") { $created.Add("$MonitoringSecretPath/$($entry.Key)") } else { $updated.Add("$MonitoringSecretPath/$($entry.Key)") }
+    }
+  }
+}
+
+foreach ($entry in $expectedObjectStorage.GetEnumerator()) {
+  if ($DryRun) {
+    if (-not $existingObjectStorage.ContainsKey($entry.Key)) { $created.Add("$ObjectStorageSecretPath/$($entry.Key)") }
+    foreach ($sourcePath in @($RuntimeSecretPath, $InstallationSecretPath, $MonitoringSecretPath)) {
+      $sourceMap = if ($sourcePath -eq $RuntimeSecretPath) { $existingRuntime } elseif ($sourcePath -eq $InstallationSecretPath) { $existingInstall } else { $existingMonitoring }
+      if ($sourceMap.ContainsKey($entry.Key)) { $deleted.Add("$sourcePath/$($entry.Key)") }
+    }
+  } else {
+    if (-not $existingObjectStorage.ContainsKey($entry.Key)) {
+      $sourcePath = $null
+      foreach ($candidate in @(
+          @{ Path = $RuntimeSecretPath; Values = $existingRuntime },
+          @{ Path = $InstallationSecretPath; Values = $existingInstall },
+          @{ Path = $MonitoringSecretPath; Values = $existingMonitoring }
+        )) {
+        if ($candidate["Values"].ContainsKey($entry.Key)) {
+          $sourcePath = $candidate["Path"]
+          break
+        }
+      }
+      if ($sourcePath) {
+        Move-InfisicalSecret -SourcePath $sourcePath -TargetPath $ObjectStorageSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers
+        $created.Add("$ObjectStorageSecretPath/$($entry.Key)")
+        $deleted.Add("$sourcePath/$($entry.Key)")
+      } else {
+        $action = Set-InfisicalSecret -SecretPath $ObjectStorageSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $false
+        if ($action -eq "created") { $created.Add("$ObjectStorageSecretPath/$($entry.Key)") } else { $updated.Add("$ObjectStorageSecretPath/$($entry.Key)") }
+      }
+    } else {
+      $action = Set-InfisicalSecret -SecretPath $ObjectStorageSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $true
+      if ($action -eq "created") { $created.Add("$ObjectStorageSecretPath/$($entry.Key)") } else { $updated.Add("$ObjectStorageSecretPath/$($entry.Key)") }
+    }
+  }
+}
+
 foreach ($name in $runtimeExtra) {
   $deleteKey = "$RuntimeSecretPath/$name"
   if ($deleted.Contains($deleteKey)) {
@@ -500,12 +667,42 @@ foreach ($name in $installExtra) {
   }
 }
 
+foreach ($name in $monitoringExtra) {
+  $deleteKey = "$MonitoringSecretPath/$name"
+  if ($deleted.Contains($deleteKey)) {
+    continue
+  }
+  if ($DryRun) {
+    $deleted.Add($deleteKey)
+  } else {
+    Remove-InfisicalSecret -SecretPath $MonitoringSecretPath -Name $name -Headers $headers
+    $deleted.Add($deleteKey)
+  }
+}
+
+foreach ($name in $objectStorageExtra) {
+  $deleteKey = "$ObjectStorageSecretPath/$name"
+  if ($deleted.Contains($deleteKey)) {
+    continue
+  }
+  if ($DryRun) {
+    $deleted.Add($deleteKey)
+  } else {
+    Remove-InfisicalSecret -SecretPath $ObjectStorageSecretPath -Name $name -Headers $headers
+    $deleted.Add($deleteKey)
+  }
+}
+
 [ordered]@{
   dryRun = $DryRun.IsPresent
   runtimePath = $RuntimeSecretPath
   installationPath = $InstallationSecretPath
+  monitoringPath = $MonitoringSecretPath
+  objectStoragePath = $ObjectStorageSecretPath
   expectedRuntimeCount = $expectedRuntime.Count
   expectedInstallationCount = $expectedInstall.Count
+  expectedMonitoringCount = $expectedMonitoring.Count
+  expectedObjectStorageCount = $expectedObjectStorage.Count
   createdCount = $created.Count
   updatedCount = $updated.Count
   deletedCount = $deleted.Count

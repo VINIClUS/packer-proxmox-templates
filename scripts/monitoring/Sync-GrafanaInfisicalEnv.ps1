@@ -4,7 +4,7 @@ param(
   [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
   [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
   [string]$InfisicalEnvironment = "dev",
-  [string]$InfisicalSecretPath = "/test/InstallationConfig",
+  [string]$InfisicalSecretPath = "/test/Monitoring",
   [string]$DefaultGrafanaUrl = "http://192.168.1.190:3000",
   [switch]$DryRun
 )

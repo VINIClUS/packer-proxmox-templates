@@ -16,7 +16,7 @@ References used:
 - Retention: keep `4` full backup chains with `wal-g delete retain FULL 4 --confirm`.
 - Incremental layer: continuous WAL archiving through PostgreSQL `archive_command`.
 - Storage target: `s3://esus-pec-backups/wal-g/ct133`.
-- Credentials: WAL-G reuses the limited MinIO backup access key from Infisical `/test`; PostgreSQL password is read from `/opt/e-SUS/webserver/config/credenciais.txt` and stored only in `/etc/esus-pec/walg.env` on CT `133`.
+- Credentials: WAL-G reuses the limited MinIO backup access key from Infisical `/test/ObjectStorage`; PostgreSQL password is read from `/opt/e-SUS/webserver/config/credenciais.txt` and stored only in `/etc/esus-pec/walg.env` on CT `133`.
 
 ## Installed Files
 

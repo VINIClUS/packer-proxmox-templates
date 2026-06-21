@@ -11,7 +11,7 @@ The files are first uploaded to MinIO for provenance, then submitted to the loca
 
 ## Implementation
 
-`scripts/esus-pec/Upload-EsusPecImportArtifactToMinio.ps1` uploads any import ZIP to MinIO through CT `134`, reads the MinIO credential from Infisical `/test`, validates SHA-256 and object size, inspects ZIP entries, and writes non-secret metadata to Infisical `/test/InstallationConfig`.
+`scripts/esus-pec/Upload-EsusPecImportArtifactToMinio.ps1` uploads any import ZIP to MinIO through CT `134`, reads the MinIO credential from Infisical `/test/ObjectStorage`, validates SHA-256 and object size, inspects ZIP entries, and writes non-secret metadata to Infisical `/test/InstallationConfig`.
 
 `scripts/esus-pec/Import-EsusPecCnesAndBolsaFamilia.mjs` logs in with the PEC installation administrator credentials, submits multipart uploads, polls GraphQL until each import reaches a final state, and records last-run status metadata in Infisical.
 

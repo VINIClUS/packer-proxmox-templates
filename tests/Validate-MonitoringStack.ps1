@@ -112,7 +112,7 @@ foreach ($downloadIntegrity in $downloadIntegrityPatterns.GetEnumerator()) {
 
 foreach ($term in @(
   "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
-  "/test/InstallationConfig",
+  "/test/Monitoring",
   "prometheus_exporter",
   "prometheus-postgres-exporter",
   "127.0.0.1:5433",
@@ -437,13 +437,13 @@ Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.ym
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "uid: loki" "Grafana Loki datasource UID"
 Assert-ArtifactContainsTerm "scripts/monitoring/Publish-GrafanaDashboards.ps1" "grafana_url" "Grafana publish env"
 Assert-ArtifactContainsTerm "scripts/monitoring/Publish-GrafanaDashboards.ps1" "grafana_token" "Grafana publish env"
-Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "/test/InstallationConfig" "Grafana Infisical path"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "/test/Monitoring" "Grafana Infisical path"
 Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_url" "Grafana Infisical env"
 Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_token" "Grafana Infisical env"
 Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "api/v1/folders" "Grafana Infisical folder creation"
 
 Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD=" "PostgreSQL exporter password placeholder"
-Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "/test/InstallationConfig" "PostgreSQL exporter Infisical path"
+Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "/test/Monitoring" "PostgreSQL exporter Infisical path"
 Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "Never commit the value" "PostgreSQL exporter secret warning"
 
 $runbookPath = "docs/monitoring/2026-06-14-centralized-monitoring.md"
@@ -463,7 +463,7 @@ foreach ($runbookTerm in @(
   "9187",
   "9404",
   "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
-  "/test/InstallationConfig",
+  "/test/Monitoring",
   'root-only `/etc/monitoring/postgres-exporter-password` file on CT `133`',
   "restricted to the Prometheus host",
   'PostgreSQL exporter: expected `up` on `192.168.1.209:9187`',

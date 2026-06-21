@@ -84,7 +84,7 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/esus-pec/Restore
 
 Default mode is non-destructive. It:
 
-- reads MinIO endpoint, bucket, object key, backup access key, expected SHA-256, and expected size from Infisical `/test`;
+- reads MinIO endpoint, bucket, object key, backup access key, expected SHA-256, and expected size from Infisical `/test/ObjectStorage`;
 - downloads the object through CT `134`;
 - transfers the backup to the target PEC CT;
 - validates SHA-256, size, `pg_restore --list`, PostgreSQL readiness, and `e-SUS-PEC.service`;

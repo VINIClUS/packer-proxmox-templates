@@ -9,7 +9,7 @@ param(
   [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
   [string]$InfisicalEnvironment = "dev",
   [string]$RuntimeSecretPath = "/test",
-  [string]$InstallationSecretPath = "/test/InstallationConfig",
+  [string]$InstallationSecretPath = "/test/Monitoring",
   [switch]$ConfigurePostgresExporter,
   [switch]$ConfigureJmxExporter,
   [switch]$ApplyJavaServiceChange

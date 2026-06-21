@@ -8,7 +8,7 @@ param(
   [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
   [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
   [string]$InfisicalEnvironment = "dev",
-  [string]$RuntimeSecretPath = "/test",
+  [string]$RuntimeSecretPath = "/test/ObjectStorage",
   [string]$MetadataSecretPath = "/test/InstallationConfig"
 )
 
