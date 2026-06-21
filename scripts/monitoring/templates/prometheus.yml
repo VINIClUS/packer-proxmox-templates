@@ -24,7 +24,6 @@ scrape_configs:
     static_configs:
       - targets:
           - ESUS_PEC_LXC_TARGET_METRICS_HOST:9100
-          - ESUS_PEC_LXC_TARGET_METRICS_HOST:9113
           - ESUS_PEC_LXC_TARGET_METRICS_HOST:9187
           - ESUS_PEC_LXC_TARGET_METRICS_HOST:9404
         labels:

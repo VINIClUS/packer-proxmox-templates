@@ -656,8 +656,7 @@ foreach ($platformLogTerm in @(
 }
 foreach ($requiredCt133Selector in @(
   'host="esus-pec-lxc-5437"',
-  'instance="192.168.1.209:9100"',
-  'instance="192.168.1.209:9113"'
+  'instance="192.168.1.209:9100"'
 )) {
   $normalizedSelector = $requiredCt133Selector -replace '\s+', ''
   if ($ct133NormalizedExpressionSet -notmatch [regex]::Escape($normalizedSelector)) {
@@ -829,6 +828,10 @@ foreach ($term in @(
   if ($esusPecTargetsBlock -notmatch $activeTargetPattern) {
     throw "Missing application exporter Prometheus target: $term"
   }
+}
+
+if ($esusPecTargetsBlock -match [regex]::Escape("ESUS_PEC_LXC_TARGET_METRICS_HOST:9113")) {
+  throw "Prometheus job esus-pec-lxc-5437 must not scrape Nginx exporter from CT 133; Nginx belongs to CT 110."
 }
 
 foreach ($term in @("monitoring-core", "esus-pec-lxc-5437", "localhost:9090", "133")) {

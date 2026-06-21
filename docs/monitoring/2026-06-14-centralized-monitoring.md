@@ -36,8 +36,8 @@ The second platform rollout adds observability for CT `110 nginx`, CT
 
 - CTID: `133`
 - Hostname: `esus-pec-lxc-5437`
-- Role: initial e-SUS PEC 5.4.37 target for Linux metrics, Nginx metrics where
-  available, PostgreSQL exporter through a dedicated `prometheus_exporter`
+- Role: e-SUS PEC 5.4.37 application and bundled database target for Linux
+  metrics, PostgreSQL exporter through a dedicated `prometheus_exporter`
   account managed in Infisical when configured, and Alloy log shipping.
 
 ### Future Targets
@@ -238,6 +238,8 @@ Expected live checks:
   broad firewall rule for TCP `9187` or TCP `9404`.
 - Grafana dashboards publish without printing `grafana_token` or
   `ESUS_PEC_POSTGRES_EXPORTER_PASSWORD`.
+- Nginx exporter for PEC HTTP/TLS must be checked on CT `110`, not CT `133`.
+  CT `133` should expose application metrics on `9100`, `9187`, and `9404`.
 
 Expected static validation output:
 
@@ -300,12 +302,13 @@ Stop and disable target agents and exporters:
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl stop alloy prometheus-node-exporter prometheus-nginx-exporter prometheus-postgres-exporter 2>/dev/null || true; systemctl disable alloy prometheus-node-exporter prometheus-nginx-exporter prometheus-postgres-exporter 2>/dev/null || true'"
 ```
 
-If the agent install created the managed Nginx stub status endpoint, roll it
-back by stopping the exporter if present and removing only the managed
-`/etc/nginx/conf.d/monitoring-stub-status.conf` file. Leave unrelated Nginx
-configuration untouched. The install script keeps a temporary failure-time
-rollback while updating the config, but it does not leave a durable post-success
-backup for later rollback.
+If an older agent install created the managed Nginx stub status endpoint on CT
+`133`, roll it back after CT `110` successfully owns PEC TLS by stopping the
+exporter if present and removing only the managed
+`/etc/nginx/conf.d/monitoring-stub-status.conf` file. Leave unrelated PEC files
+untouched. The install script keeps a temporary failure-time rollback while
+updating the config, but it does not leave a durable post-success backup for
+later rollback.
 
 ```powershell
 rtk ssh <proxmox-ssh-target> "pct exec 133 -- bash -lc 'systemctl stop prometheus-nginx-exporter 2>/dev/null || true; systemctl disable prometheus-nginx-exporter 2>/dev/null || true; rm -f /etc/nginx/conf.d/monitoring-stub-status.conf'"
@@ -370,7 +373,8 @@ Live CT `190` evidence collected on 2026-06-14:
   - Grafana: `http://192.168.1.190:3000`
   - Loki: `http://192.168.1.190:3100`
 
-Live CT `133` target evidence collected on 2026-06-14:
+Live CT `133` target evidence collected on 2026-06-14, before the later
+decision to consolidate all Nginx responsibility into CT `110`:
 
 - CTID: `133`
 - Hostname: `esus-pec-lxc-5437`
@@ -388,14 +392,15 @@ Live CT `133` target evidence collected on 2026-06-14:
 - JMX exporter: `skipped`, because Java service mutation is proposal-only until
   staged JMX artifacts and a reviewed apply plan exist
 
-Prometheus target evidence collected on 2026-06-14:
+Prometheus target evidence collected on 2026-06-14, before Nginx consolidation:
 
 - `monitoring-core` at `http://localhost:9090/metrics`: `up`
 - `monitoring-core-alloy` at `http://localhost:12345/metrics`: `up`
 - `esus-pec-lxc-5437` node exporter at `http://192.168.1.209:9100/metrics`:
   `up`
 - `esus-pec-lxc-5437` Nginx exporter at `http://192.168.1.209:9113/metrics`:
-  `up`
+  `up` at that time; this target is no longer part of the desired topology
+  after CT `110` became the single edge Nginx.
 - Optional PostgreSQL and JMX exporters are intentionally not in the default
   scrape set until their guarded installers are applied.
 
@@ -494,3 +499,16 @@ Platform service evidence collected on 2026-06-21:
   `nginx_up{host="nginx"}`, `pg_up{host="infisical"}`,
   `redis_up{host="infisical"}`, and
   `minio_cluster_bucket_total{host="esus-pec-minio"}`.
+
+Nginx consolidation evidence collected on 2026-06-21:
+
+- CT `110 nginx` already had Alloy, node exporter, and
+  `prometheus-nginx-exporter` active on `192.168.1.139:9113`.
+- CT `110` received Certbot and the managed PEC vhost
+  `/etc/nginx/sites-available/esus-pec-tls.conf`, proxying to
+  `http://192.168.1.209:8080`.
+- CT `133` still had `nginx` and `prometheus-nginx-exporter` active from the
+  previous local TLS path. They were not disabled because trusted CT `110`
+  issuance is blocked by public HTTP-01 reachability.
+- Desired Prometheus config now scrapes Nginx exporter only from CT `110`; CT
+  `133` remains responsible for node, PostgreSQL, and JVM metrics.

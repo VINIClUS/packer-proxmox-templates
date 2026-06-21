@@ -1,6 +1,8 @@
 param(
   [string]$ConfigFile = "config/Proxmox.pkrvars.hcl",
-  [int]$Ctid = 133,
+  [string]$Ctid = "",
+  [string]$ProxyCtid = "",
+  [string]$ProxyExpectedHostname = "",
   [string]$SourceFile = "GovBrOAuth.txt",
   [string]$InfisicalUrl = "",
   [string]$InfisicalWorkspaceId = "",
@@ -8,9 +10,9 @@ param(
   [string]$InfisicalEnvironment = "",
   [string]$InfisicalSecretPath = "/test/InstallationConfig/GovBrOAuth",
   [string]$LegacyInfisicalSecretPath = "/test/InstallationConfig",
-  [string]$Domain = "esus.presidenteepitacio.sp.gov.br",
-  [string]$LocalIp = "192.168.1.209",
-  [string]$ServerTimezone = "America/Sao_Paulo",
+  [string]$Domain = "",
+  [string]$LocalIp = "",
+  [string]$ServerTimezone = "",
   [string]$AppPropertiesPath = "/opt/e-SUS/webserver/config/application.properties",
   [switch]$Apply
 )
@@ -23,6 +25,12 @@ $InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $i
 $InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
 $InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $infisicalEnvFile
 $InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
+$resolvedAppCtid = [int](Resolve-InfisicalSetting -Name "ESUS_PEC_LXC_CTID" -CurrentValue $Ctid -EnvFilePath $infisicalEnvFile)
+$resolvedProxyCtid = [int](Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_CTID" -CurrentValue $ProxyCtid -EnvFilePath $infisicalEnvFile)
+$resolvedProxyExpectedHostname = Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_NAME" -CurrentValue $ProxyExpectedHostname -EnvFilePath $infisicalEnvFile
+$Domain = Resolve-InfisicalSetting -Name "ESUS_PEC_PUBLIC_DOMAIN" -CurrentValue $Domain -EnvFilePath $infisicalEnvFile
+$LocalIp = Resolve-InfisicalSetting -Name "ESUS_PEC_LXC_IP" -CurrentValue $LocalIp -EnvFilePath $infisicalEnvFile
+$ServerTimezone = Resolve-InfisicalSetting -Name "ESUS_PEC_SERVER_TIMEZONE" -CurrentValue $ServerTimezone -EnvFilePath $infisicalEnvFile
 
 function Get-HclValue {
   param([string]$Name, [string]$Text, [string]$Default = $null)
@@ -215,6 +223,8 @@ if (Test-Path -LiteralPath $SourceFile) {
     ESUS_PEC_GOVBR_OAUTH_REDIRECT_BASE_URL = "https://$Domain"
     ESUS_PEC_GOVBR_OAUTH_TEST_HOST_OVERRIDE = "$LocalIp $Domain"
     ESUS_PEC_GOVBR_OAUTH_TEST_STRATEGY = "hosts-file-split-dns"
+    ESUS_PEC_GOVBR_OAUTH_PROXY_LXC_CTID = [string]$resolvedProxyCtid
+    ESUS_PEC_GOVBR_OAUTH_PROXY_LXC_NAME = $resolvedProxyExpectedHostname
     ESUS_PEC_GOVBR_OAUTH_SOURCE_FILE_SHA256 = $sourceHash
     ESUS_PEC_GOVBR_OAUTH_APP_PROPERTIES_PATH = $AppPropertiesPath
     ESUS_PEC_GOVBR_OAUTH_TLS_MODE = "nginx-termination"
@@ -258,7 +268,6 @@ CLIENT_SECRET="`$(printf '%s' '$clientSecretB64' | base64 -d)"
 DOMAIN="`$(printf '%s' '$domainB64' | base64 -d)"
 SERVER_TIMEZONE="`$(printf '%s' '$timezoneB64' | base64 -d)"
 PREFIX="bridge.security.oauth2.client.registration.govbr"
-NGINX_SITE="/etc/nginx/sites-available/esus-pec-tls.conf"
 BACKUP_DIR="/var/backups/esus-pec-govbr"
 
 if [ ! -f "`$APP_PROPERTIES" ]; then
@@ -314,36 +323,9 @@ if [ -f "/usr/share/zoneinfo/`$SERVER_TIMEZONE" ]; then
   printf '%s\n' "`$SERVER_TIMEZONE" > /etc/timezone
 fi
 
-nginx_reloaded=false
-if [ -f "`$NGINX_SITE" ]; then
-  cp -a "`$NGINX_SITE" "`$BACKUP_DIR/`$(basename "`$NGINX_SITE").`$(date -u +%Y%m%dT%H%M%SZ).bak"
-  export DOMAIN
-  python3 - <<'PY'
-import os
-from pathlib import Path
-
-path = Path("/etc/nginx/sites-available/esus-pec-tls.conf")
-domain = os.environ["DOMAIN"]
-text = path.read_text(encoding="utf-8", errors="replace")
-lines = []
-changed = False
-for line in text.splitlines():
-    if line.strip().startswith("server_name "):
-        lines.append(f"    server_name {domain} _;")
-        changed = True
-    else:
-        lines.append(line.rstrip())
-if changed:
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
-  nginx -t >/dev/null
-  systemctl reload nginx
-  nginx_reloaded=true
-fi
-
 systemctl restart e-SUS-PEC.service
 for i in `$(seq 1 90); do
-  if curl -ksS --max-time 5 https://127.0.0.1/ >/dev/null 2>&1; then
+  if curl -fsS --max-time 5 http://127.0.0.1:8080/ >/dev/null 2>&1; then
     break
   fi
   sleep 5
@@ -355,19 +337,48 @@ done
 
 echo "APPLIED=true"
 echo "BACKUP=`$backup"
-echo "NGINX_RELOADED=`$nginx_reloaded"
 echo "PEC_SERVICE=`$(systemctl is-active e-SUS-PEC.service)"
-echo "NGINX_SERVICE=`$(systemctl is-active nginx 2>/dev/null || true)"
 echo "TIMEZONE=`$(cat /etc/timezone 2>/dev/null || true)"
 echo "APP_PROPERTIES_SHA256=`$(sha256sum "`$APP_PROPERTIES" | awk '{print `$1}')"
 grep -E '^bridge\.security\.oauth2\.client\.registration\.govbr\.(client-id|client-secret)=' "`$APP_PROPERTIES" | sed -E 's/(client-id=).+/\1[REDACTED]/; s/(client-secret=).+/\1[REDACTED]/'
 "@
 
-$result = Invoke-ContainerBash -ContainerId $Ctid -Script $remoteScript
+$result = Invoke-ContainerBash -ContainerId $resolvedAppCtid -Script $remoteScript
+$proxyValidationResult = @()
+
+if ($Apply) {
+  $proxyHostnameB64 = Convert-ToBase64 -Value $resolvedProxyExpectedHostname
+  $proxyValidationScript = @"
+set -euo pipefail
+EXPECTED_HOSTNAME="`$(printf '%s' '$proxyHostnameB64' | base64 -d)"
+DOMAIN="`$(printf '%s' '$domainB64' | base64 -d)"
+NGINX_SITE="/etc/nginx/sites-available/esus-pec-tls.conf"
+actual_hostname="`$(hostname -s)"
+if [ "`$actual_hostname" != "`$EXPECTED_HOSTNAME" ]; then
+  echo "PROXY_HOSTNAME_MISMATCH=expected:`$EXPECTED_HOSTNAME actual:`$actual_hostname"
+  exit 1
+fi
+if [ ! -f "`$NGINX_SITE" ]; then
+  echo "PROXY_NGINX_SITE_MISSING=`$NGINX_SITE"
+  exit 1
+fi
+if ! grep -Eq "server_name[[:space:]]+`$DOMAIN([[:space:];]|$)" "`$NGINX_SITE"; then
+  echo "PROXY_NGINX_DOMAIN_MISSING=`$DOMAIN"
+  exit 1
+fi
+nginx -t >/dev/null
+systemctl reload nginx
+echo "PROXY_NGINX_RELOADED=true"
+echo "PROXY_NGINX_SERVICE=`$(systemctl is-active nginx)"
+"@
+  $proxyValidationResult = @(Invoke-ContainerBash -ContainerId $resolvedProxyCtid -Script $proxyValidationScript)
+}
 
 [ordered]@{
   applied = $Apply.IsPresent
-  ctid = $Ctid
+  applicationCtid = $resolvedAppCtid
+  proxyCtid = $resolvedProxyCtid
+  proxyName = $resolvedProxyExpectedHostname
   infisicalPath = $InfisicalSecretPath
   sourceFilePresent = (Test-Path -LiteralPath $SourceFile)
   domain = $Domain
@@ -375,4 +386,5 @@ $result = Invoke-ContainerBash -ContainerId $Ctid -Script $remoteScript
   output = ($result -split "`n" | ForEach-Object {
       $_ -replace '(client-id=).*', '$1[REDACTED]' -replace '(client-secret=).*', '$1[REDACTED]'
     })
+  proxyOutput = (($proxyValidationResult -join "`n") -split "`n")
 } | ConvertTo-Json -Depth 5

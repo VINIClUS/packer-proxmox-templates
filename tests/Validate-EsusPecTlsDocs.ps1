@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $paths = @(
   "scripts/esus-pec/Enable-EsusPecLxcTls.ps1",
+  "scripts/esus-pec/Set-EsusPecTlsProxyInfisicalMetadata.ps1",
   "docs/esus-pec/2026-06-05-lxc-tls.md",
   "docs/credentials/esus-pec-infisical-secrets.html",
   "config/esus-pec.infisical.env.example"
@@ -16,13 +17,19 @@ foreach ($relativePath in $paths) {
   }
 }
 
-$scriptErrors = $null
-$null = [System.Management.Automation.PSParser]::Tokenize(
-  (Get-Content -LiteralPath (Join-Path $root "scripts/esus-pec/Enable-EsusPecLxcTls.ps1") -Raw),
-  [ref]$scriptErrors
+$scriptPaths = @(
+  "scripts/esus-pec/Enable-EsusPecLxcTls.ps1",
+  "scripts/esus-pec/Set-EsusPecTlsProxyInfisicalMetadata.ps1"
 )
-if ($scriptErrors.Count -gt 0) {
-  throw "TLS PowerShell script has parse errors: $($scriptErrors -join '; ')"
+foreach ($scriptPath in $scriptPaths) {
+  $scriptErrors = $null
+  $null = [System.Management.Automation.PSParser]::Tokenize(
+    (Get-Content -LiteralPath (Join-Path $root $scriptPath) -Raw),
+    [ref]$scriptErrors
+  )
+  if ($scriptErrors.Count -gt 0) {
+    throw "TLS PowerShell script has parse errors in ${scriptPath}: $($scriptErrors -join '; ')"
+  }
 }
 
 $combined = ($paths | ForEach-Object {
@@ -31,6 +38,7 @@ $combined = ($paths | ForEach-Object {
 
 $requiredFragments = @(
   "Enable-EsusPecLxcTls.ps1",
+  "Set-EsusPecTlsProxyInfisicalMetadata.ps1",
   "ESUS_PEC_TLS_CERTIFICATE_PEM",
   "ESUS_PEC_TLS_PRIVATE_KEY_PEM",
   "ESUS_PEC_TLS_HTTPS_URL",
@@ -39,11 +47,17 @@ $requiredFragments = @(
   "ESUS_PEC_TLS_CERTIFICATE_SAN",
   "ESUS_PEC_TLS_CERTIFICATE_KIND",
   "ESUS_PEC_TLS_TERMINATION",
-  "nginx-lxc",
-  "https://192.168.1.209/",
+  "ESUS_PEC_TLS_PROXY_LXC_CTID",
+  "ESUS_PEC_TLS_PROXY_LXC_IP",
+  "ESUS_PEC_TLS_PROXY_LXC_NAME",
+  "ESUS_PEC_TLS_UPSTREAM_LXC_IP",
+  "ESUS_PEC_TLS_UPSTREAM_URL",
+  "nginx-edge-lxc-certbot",
+  'CT `110`',
+  "ACME_PUBLIC_HTTP_STATUS=000",
   "/test/InstallationConfig",
   "No PEM values are stored in Git or documentation",
-  "pct exec 133 -- systemctl disable --now nginx"
+  "pct exec 133 -- systemctl disable --now nginx prometheus-nginx-exporter"
 )
 
 foreach ($fragment in $requiredFragments) {
