@@ -159,6 +159,30 @@ foreach ($term in @(
   }
 }
 
+foreach ($pg96IncompatibleCollectorFlag in @(
+  "--no-collector.wal",
+  "--no-collector.replication",
+  "--no-collector.replication_slot",
+  "--no-collector.stat_progress_vacuum"
+)) {
+  if ($activeApplicationExporterProvisioner -notmatch [regex]::Escape($pg96IncompatibleCollectorFlag)) {
+    throw "PostgreSQL 9.6 exporter service must disable incompatible default collector: $pg96IncompatibleCollectorFlag"
+  }
+}
+
+$postgresExporterRestartIndex =
+  $activeApplicationExporterProvisioner.IndexOf("systemctl restart prometheus-postgres-exporter")
+$postgresExporterUnitIndex =
+  $activeApplicationExporterProvisioner.IndexOf("cat >/etc/systemd/system/prometheus-postgres-exporter.service")
+
+if ($postgresExporterRestartIndex -lt 0) {
+  throw "PostgreSQL exporter provisioner must restart prometheus-postgres-exporter after updating its systemd unit."
+}
+
+if ($postgresExporterRestartIndex -lt $postgresExporterUnitIndex) {
+  throw "PostgreSQL exporter provisioner must restart prometheus-postgres-exporter after writing its systemd unit."
+}
+
 foreach ($jmxFirewallTerm in @(
   'iifname "lo" tcp dport 9404 accept',
   'ip saddr "$monitoring_core_host" tcp dport 9404 accept',
@@ -212,7 +236,8 @@ foreach ($term in @(
   "SECURITY DEFINER",
   "CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_activity()",
   "CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_replication()",
-  "SELECT * FROM postgres_exporter.get_pg_stat_activity()",
+  "FROM postgres_exporter.get_pg_stat_activity() activity",
+  "'client backend'::text AS backend_type",
   "SELECT * FROM postgres_exporter.get_pg_stat_replication()",
   "REVOKE EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() FROM PUBLIC",
   "REVOKE EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_replication() FROM PUBLIC",

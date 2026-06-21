@@ -695,7 +695,7 @@ Type=simple
 User=prometheus-postgres-exporter
 Group=prometheus-postgres-exporter
 EnvironmentFile=/etc/monitoring/postgres-exporter.env
-ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=0.0.0.0:9187
+ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=0.0.0.0:9187 --no-collector.wal --no-collector.replication --no-collector.replication_slot --no-collector.stat_progress_vacuum
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
@@ -714,6 +714,7 @@ apply_postgres_exporter_firewall
 systemctl daemon-reload
 systemctl enable --now prometheus-postgres-exporter-firewall
 systemctl enable --now prometheus-postgres-exporter
+systemctl restart prometheus-postgres-exporter
 for attempt in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:9187/metrics |
       grep -q '^pg_up 1$'; then

@@ -225,6 +225,13 @@ Expected live checks:
 
 - PostgreSQL exporter: expected `up` on `192.168.1.209:9187`, `pg_up` present,
   and database panels populated from `pg_stat_database` metrics.
+- For CT 133 PostgreSQL 9.6.13, `postgres_exporter 0.19.1` must run with
+  the PG10+ default collectors `wal`, `replication`, `replication_slot`, and
+  `stat_progress_vacuum` disabled. Its compatibility view also adds a
+  synthetic `backend_type` column for the default `pg_stat_activity` map. A
+  healthy scrape has `pg_exporter_last_scrape_error 0` and no recent
+  `source=collector.go` or `postgres_exporter.go:713` errors in
+  `journalctl -u prometheus-postgres-exporter`.
 - JMX exporter: expected `up` on `192.168.1.209:9404`, JVM memory, garbage
   collection, and thread metrics present.
 - Prometheus target access remains restricted to the Prometheus host, with no

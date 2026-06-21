@@ -34,8 +34,12 @@ SET search_path = pg_catalog, pg_temp;
 REVOKE EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() TO prometheus_exporter;
 
-CREATE OR REPLACE VIEW postgres_exporter.pg_stat_activity AS
-  SELECT * FROM postgres_exporter.get_pg_stat_activity();
+DROP VIEW IF EXISTS postgres_exporter.pg_stat_activity;
+CREATE VIEW postgres_exporter.pg_stat_activity AS
+  SELECT
+    activity.*,
+    'client backend'::text AS backend_type
+  FROM postgres_exporter.get_pg_stat_activity() activity;
 REVOKE ALL ON postgres_exporter.pg_stat_activity FROM PUBLIC;
 GRANT SELECT ON postgres_exporter.pg_stat_activity TO prometheus_exporter;
 
