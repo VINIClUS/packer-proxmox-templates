@@ -4,10 +4,10 @@ param(
   [string]$PecIp = "192.168.1.209",
   [string]$PrimaryDnsName = "esus-pec-lxc-5437",
   [int]$CertificateDays = 825,
-  [string]$InfisicalUrl = "http://192.168.1.226:8080",
-  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
-  [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
-  [string]$InfisicalEnvironment = "dev",
+  [string]$InfisicalUrl = "",
+  [string]$InfisicalWorkspaceId = "",
+  [string]$InfisicalProjectSlug = "",
+  [string]$InfisicalEnvironment = "",
   [string]$InfisicalSecretPath = "/test/InstallationConfig/TLS",
   [switch]$ForceRotateCertificate,
   [switch]$SkipInfisical
@@ -17,7 +17,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
 $infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
-$InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+if (-not $SkipInfisical) {
+  $InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+  $InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
+  $InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $infisicalEnvFile
+  $InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
+}
 
 function Get-HclValue {
   param(

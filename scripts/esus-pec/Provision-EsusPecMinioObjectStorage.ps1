@@ -12,10 +12,10 @@ param(
   [int]$Cores = 2,
   [int]$SwapMb = 512,
   [string]$Bucket = "esus-pec-backups",
-  [string]$InfisicalUrl = "http://192.168.1.226:8080",
-  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
-  [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
-  [string]$InfisicalEnvironment = "dev",
+  [string]$InfisicalUrl = "",
+  [string]$InfisicalWorkspaceId = "",
+  [string]$InfisicalProjectSlug = "",
+  [string]$InfisicalEnvironment = "",
   [string]$InfisicalSecretPath = "/test/ObjectStorage"
 )
 
@@ -24,6 +24,9 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
 $infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
 $InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+$InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
+$InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $infisicalEnvFile
+$InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
 
 function Get-HclValue {
   param(

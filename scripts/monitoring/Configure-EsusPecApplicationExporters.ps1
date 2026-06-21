@@ -4,10 +4,10 @@ param(
   [string]$TargetName = "esus-pec-lxc-5437",
   [string]$TargetMetricsHost = "192.168.1.209",
   [string]$MonitoringCoreHost = "192.168.1.190",
-  [string]$InfisicalUrl = "http://192.168.1.226:8080",
-  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
-  [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
-  [string]$InfisicalEnvironment = "dev",
+  [string]$InfisicalUrl = "",
+  [string]$InfisicalWorkspaceId = "",
+  [string]$InfisicalProjectSlug = "",
+  [string]$InfisicalEnvironment = "",
   [string]$RuntimeSecretPath = "/test",
   [string]$InstallationSecretPath = "/test/Monitoring",
   [switch]$ConfigurePostgresExporter,
@@ -20,6 +20,9 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
 $infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
 $InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+$InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
+$InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $infisicalEnvFile
+$InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
 
 $postgresExporterVersion = "0.19.1"
 $postgresExporterSha256 = "229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0"

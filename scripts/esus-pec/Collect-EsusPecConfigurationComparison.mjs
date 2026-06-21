@@ -18,8 +18,18 @@ function loadDotEnv(filePath) {
   }
 }
 
+function getRequiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`Missing required Infisical setting ${name}. Declare it in .env or the process environment.`);
+  }
+  return value;
+}
+
 function resolveInfisicalUrl() {
-  return (process.env.INFISICAL_URL || "http://192.168.1.226:8080").trim().replace(/\/+$/, "");
+  const value = getRequiredEnv("INFISICAL_URL").replace(/\/+$/, "");
+  new URL(value);
+  return value;
 }
 
 async function getInfisicalSecrets(secretPath) {
@@ -27,8 +37,8 @@ async function getInfisicalSecrets(secretPath) {
   if (!token) throw new Error("Infisical token not found.");
 
   const baseUrl = resolveInfisicalUrl();
-  const workspaceId = process.env.INFISICAL_WORKSPACE_ID || "2c83cfe9-e794-4961-977d-23000ae14461";
-  const environment = process.env.INFISICAL_ENVIRONMENT || "dev";
+  const workspaceId = getRequiredEnv("INFISICAL_WORKSPACE_ID");
+  const environment = getRequiredEnv("INFISICAL_ENVIRONMENT");
   const url = new URL("/api/v3/secrets/raw", baseUrl);
   url.searchParams.set("workspaceId", workspaceId);
   url.searchParams.set("environment", environment);

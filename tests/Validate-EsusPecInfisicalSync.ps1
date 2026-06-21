@@ -9,6 +9,7 @@ $paths = @(
   "scripts/common/InfisicalEndpoint.ps1",
   "docs/esus-pec/2026-06-05-infisical-variable-reconciliation.md",
   "docs/credentials/esus-pec-infisical-secrets.html",
+  ".env.example",
   "config/esus-pec.infisical.env.example"
 )
 
@@ -45,7 +46,9 @@ $tokenLoaderScriptPaths = @(
   "scripts/esus-pec/Provision-EsusPecMinioObjectStorage.ps1",
   "scripts/esus-pec/Restore-EsusPecBackupFromMinio.ps1",
   "scripts/esus-pec/Upload-EsusPecBackupToMinio.ps1",
-  "scripts/esus-pec/Upload-EsusPecImportArtifactToMinio.ps1"
+  "scripts/esus-pec/Upload-EsusPecImportArtifactToMinio.ps1",
+  "scripts/monitoring/Configure-EsusPecApplicationExporters.ps1",
+  "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1"
 )
 $tokenLoaderErrors = @()
 foreach ($relativePath in $tokenLoaderScriptPaths) {
@@ -126,11 +129,14 @@ $requiredFragments = @(
   "postTokenUpdateVisibleInstallationSecretCount=0",
   "syncGuard=Refusing to sync because /test is readable but has zero visible secrets",
   "AllowBootstrapEmptySources",
+  "Resolve-InfisicalSetting",
   "Resolve-InfisicalUrl",
+  "Missing required Infisical setting",
   "INFISICAL_URL",
   "INFISICAL_WORKSPACE_ID",
   "INFISICAL_PROJECT_SLUG",
   "INFISICAL_ENVIRONMENT",
+  "Infisical connection metadata must be declared",
   "finalRuntimeSecretCount=15",
   "finalInstallationConfigSecretCount=110",
   "finalMonitoringSecretCount=3",
@@ -158,7 +164,12 @@ $forbiddenPatterns = @(
   '-----BEGIN .*PRIVATE KEY-----',
   'ESUS_PEC_.*PASSWORD=[^\r\n]+',
   'JSESSIONID=',
-  'XSRF-TOKEN='
+  'XSRF-TOKEN=',
+  'http://192\.168\.1\.226:8080',
+  '2c83cfe9-e794-4961-977d-23000ae14461',
+  'esus-pec-z-px-c',
+  'process\.env\.INFISICAL_URL\s*\|\|',
+  'INFISICAL_ENVIRONMENT\s*\|\|\s*"dev"'
 )
 
 foreach ($pattern in $forbiddenPatterns) {

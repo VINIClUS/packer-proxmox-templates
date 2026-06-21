@@ -1,8 +1,8 @@
 ﻿param(
   [string]$EnvFile = ".env",
-  [string]$InfisicalUrl = "http://192.168.1.226:8080",
-  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
-  [string]$InfisicalEnvironment = "dev",
+  [string]$InfisicalUrl = "",
+  [string]$InfisicalWorkspaceId = "",
+  [string]$InfisicalEnvironment = "",
   [string]$RuntimeSecretPath = "/test",
   [string]$InstallationSecretPath = "/test/InstallationConfig",
   [string]$MonitoringSecretPath = "/test/Monitoring",
@@ -14,6 +14,8 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
 $infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
 $InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+$InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
+$InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
 
 function Get-EnvFileValues {
   param([Parameter(Mandatory = $true)][string]$Path)

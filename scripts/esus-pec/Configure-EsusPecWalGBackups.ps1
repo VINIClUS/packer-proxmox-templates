@@ -3,9 +3,9 @@ param(
   [int]$TargetCtid = 133,
   [string]$WalGVersion = "v3.0.8",
   [string]$WalGDownloadUrl = "https://github.com/wal-g/wal-g/releases/download/v3.0.8/wal-g-pg-20.04-amd64",
-  [string]$InfisicalUrl = "http://192.168.1.226:8080",
-  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
-  [string]$InfisicalEnvironment = "dev",
+  [string]$InfisicalUrl = "",
+  [string]$InfisicalWorkspaceId = "",
+  [string]$InfisicalEnvironment = "",
   [string]$InfisicalSecretPath = "/test/ObjectStorage",
   [string]$Schedule = "Sun 02:00:00 America/Sao_Paulo",
   [int]$RetentionFullBackups = 4,
@@ -18,6 +18,8 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
 $infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
 $InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+$InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
+$InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
 
 function Get-HclValue {
   param([string]$Name, [string]$Text, [string]$Default = $null)
