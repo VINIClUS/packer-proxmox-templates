@@ -191,6 +191,66 @@ function Get-ExistingSecretValue {
   return $Default
 }
 
+function Get-ExampleEnvValues {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $values = [ordered]@{}
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return $values
+  }
+
+  foreach ($line in Get-Content -LiteralPath $Path) {
+    $trimmed = $line.Trim()
+    if ($trimmed -eq "" -or $trimmed.StartsWith("#") -or $trimmed -notmatch "=") {
+      continue
+    }
+
+    $parts = $trimmed -split "=", 2
+    $name = $parts[0].Trim()
+    if ($name -notmatch "^[A-Za-z_][A-Za-z0-9_]*$") {
+      continue
+    }
+
+    $values[$name] = $parts[1].Trim().Trim('"').Trim("'")
+  }
+
+  return $values
+}
+
+function Get-DesiredInfisicalPath {
+  param([Parameter(Mandatory = $true)][string]$Name)
+
+  $runtimeExactNames = @(
+    "ESUS_PEC_ADMIN_USERNAME",
+    "ESUS_PEC_ADMIN_PASSWORD",
+    "ESUS_PEC_SMTP_HOST",
+    "ESUS_PEC_SMTP_PORT",
+    "ESUS_PEC_SMTP_USERNAME",
+    "ESUS_PEC_SMTP_PASSWORD",
+    "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD",
+    "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD"
+  )
+
+  if ($Name -match "^ESUS_PEC_DB_" -or
+      $Name -match "^ESUS_PEC_OBJECT_STORAGE_" -or
+      $Name -match "^ESUS_PEC_WALG_" -or
+      $Name -in $runtimeExactNames) {
+    return $RuntimeSecretPath
+  }
+
+  if ($Name -match "^ESUS_PEC_" -or $Name -in @("grafana_url", "grafana_token")) {
+    return $InstallationSecretPath
+  }
+
+  return $null
+}
+
+function Test-ManagedInfisicalName {
+  param([Parameter(Mandatory = $true)][string]$Name)
+
+  return ($Name -match "^ESUS_PEC_" -or $Name -in @("grafana_url", "grafana_token"))
+}
+
 function Get-RemotePecDatabaseValues {
   param(
     [Parameter(Mandatory = $true)][string]$Target,
@@ -336,6 +396,27 @@ foreach ($entry in $installDefaults.GetEnumerator()) {
   Add-Expected -Target $expectedInstall -Name $entry.Key -Value $value
 }
 
+$exampleValues = Get-ExampleEnvValues -Path "config/esus-pec.infisical.env.example"
+foreach ($entry in $exampleValues.GetEnumerator()) {
+  $desiredPath = Get-DesiredInfisicalPath -Name $entry.Key
+  if ($null -eq $desiredPath) {
+    continue
+  }
+
+  if ($desiredPath -eq $RuntimeSecretPath) {
+    if (-not $expectedRuntime.ContainsKey($entry.Key)) {
+      $value = Get-ExistingSecretValue -Name $entry.Key -Primary $existingRuntime -Fallback $existingInstall -Default ([string]$entry.Value)
+      Add-Expected -Target $expectedRuntime -Name $entry.Key -Value $value
+    }
+    continue
+  }
+
+  if (-not $expectedInstall.ContainsKey($entry.Key)) {
+    $value = Get-ExistingSecretValue -Name $entry.Key -Primary $existingInstall -Fallback $existingRuntime -Default ([string]$entry.Value)
+    Add-Expected -Target $expectedInstall -Name $entry.Key -Value $value
+  }
+}
+
 $runtimeAllowed = [string[]]$expectedRuntime.Keys
 $installAllowed = [string[]]$expectedInstall.Keys
 $combinedAllowed = @($runtimeAllowed + $installAllowed | Sort-Object -Unique)
@@ -350,10 +431,10 @@ $preserveSourceValueOnMove = @(
 
 if ($sameSecretPath) {
   $runtimeExtra = @()
-  $installExtra = @($existingInstall.Keys | Where-Object { $_ -notin $combinedAllowed } | Sort-Object)
+  $installExtra = @($existingInstall.Keys | Where-Object { $_ -notin $combinedAllowed -and (Test-ManagedInfisicalName -Name $_) } | Sort-Object)
 } else {
-  $runtimeExtra = @($existingRuntime.Keys | Where-Object { $_ -notin $runtimeAllowed } | Sort-Object)
-  $installExtra = @($existingInstall.Keys | Where-Object { $_ -notin $installAllowed } | Sort-Object)
+  $runtimeExtra = @($existingRuntime.Keys | Where-Object { $_ -notin $runtimeAllowed -and (Test-ManagedInfisicalName -Name $_) } | Sort-Object)
+  $installExtra = @($existingInstall.Keys | Where-Object { $_ -notin $installAllowed -and (Test-ManagedInfisicalName -Name $_) } | Sort-Object)
 }
 
 $created = New-Object System.Collections.Generic.List[string]
