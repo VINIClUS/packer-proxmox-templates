@@ -9,7 +9,7 @@
 - Sensitive fields present: datasource password, PKCS12 keystore password, Gov.br OAuth client secret.
 - Non-secret structure present: PostgreSQL URL on `localhost:5433/esus`, Spring HTTPS on port `443`, PKCS12 keystore at `config/esusaps.p12`, key alias `esus`, and Gov.br properties under `bridge.security.oauth2.client.registration.govbr`.
 
-## Current Local State
+## Initial Local State
 
 CT `133` is active as `esus-pec-lxc-5437`. The local PEC service is active and enabled. Current `/opt/e-SUS/webserver/config/application.properties` only contains datasource properties; no Gov.br OAuth properties are present.
 
@@ -21,6 +21,30 @@ The local installation uses nginx TLS termination on `443` and proxies to PEC on
 - `X-Real-IP`
 
 This is preferable for the first implementation because setting `server.port=443` in PEC would conflict with nginx and bypass the existing TLS/certificate automation.
+
+## Applied State
+
+Implemented on 2026-06-21 with `scripts/esus-pec/Configure-EsusPecGovBrOAuth.ps1`.
+
+- Synced Gov.br OAuth variable names and secret values from ignored `GovBrOAuth.txt` into Infisical environment `dev`, folder `/test/InstallationConfig`.
+- Patched CT `133` `/opt/e-SUS/webserver/config/application.properties` idempotently with only `bridge.security.oauth2.client.registration.govbr.client-id` and `bridge.security.oauth2.client.registration.govbr.client-secret`.
+- Preserved nginx TLS termination and did not copy `server.port=443`, `security.require-ssl`, or `server.ssl.*` into PEC.
+- Updated nginx `server_name` to include `esus.presidenteepitacio.sp.gov.br`.
+- Set CT timezone to `America/Sao_Paulo`.
+- Created rollback backups under `/var/backups/esus-pec-govbr/`, including `application.properties.20260621T134051Z.bak`.
+
+Validated evidence:
+
+```text
+curl -kI --resolve esus.presidenteepitacio.sp.gov.br:443:192.168.1.209 https://esus.presidenteepitacio.sp.gov.br/ -> HTTP 200
+e-SUS-PEC.service -> active
+nginx -> active
+TIMEZONE -> America/Sao_Paulo
+APP_PROPERTIES_SHA256 -> ddfdf0f9383e720ca970bb1a1114245a5e50361dd548eb7063619a8755f67532
+node scripts/esus-pec/Validate-EsusPecGovBrOAuth.mjs --base-url=https://esus.presidenteepitacio.sp.gov.br/ --host-resolver-ip=192.168.1.209 -> govBREnabled=true
+```
+
+The validation script requires Playwright in the local Node environment. For an ephemeral validation run, use `npm install --no-save playwright` and do not commit `node_modules/`.
 
 ## External Constraints
 
@@ -61,7 +85,7 @@ Store these in Infisical `/test/InstallationConfig` first. Mirror to `/prod/Inst
 | `ESUS_PEC_GOVBR_DEBUG_MITM_REQUIRED` | No | `false` initially. |
 | `ESUS_PEC_GOVBR_DEBUG_PROXY_TOOL` | No | `mitmproxy` if deeper diagnosis is approved. |
 
-## Implementation Plan
+## Implementation Procedure
 
 1. Copy `client-id` and `client-secret` from `GovBrOAuth.txt` into Infisical only. Do not commit them or print them.
 2. Build `Configure-EsusPecGovBrOAuth.ps1` to read Infisical, back up `application.properties`, and idempotently upsert only:
@@ -70,7 +94,7 @@ Store these in Infisical `/test/InstallationConfig` first. Mirror to `/prod/Inst
 3. Do not copy `server.port=443`, `security.require-ssl`, or `server.ssl.*` in the first pass. Keep nginx as TLS terminator and PEC on `8080`.
 4. Update nginx `server_name` to include `esus.presidenteepitacio.sp.gov.br` only when testing starts. Preserve `Host $host` and `X-Forwarded-Proto https`.
 5. Restart only `e-SUS-PEC.service` after backing up properties and recording rollback commands.
-6. Validate GraphQL `/api/graphql` `info.govBREnabled` changes from `false` to `true`.
+6. Validate GraphQL `/api/graphql` `info.govBREnabled` changes from `false` to `true` with `scripts/esus-pec/Validate-EsusPecGovBrOAuth.mjs`.
 7. Test Gov.br login using hosts/split-DNS from a controlled test workstation:
    - add `192.168.1.209 esus.presidenteepitacio.sp.gov.br` locally;
    - open `https://esus.presidenteepitacio.sp.gov.br`;
