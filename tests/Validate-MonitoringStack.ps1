@@ -7,8 +7,10 @@ $requiredArtifacts = @(
   "scripts/monitoring/Provision-MonitoringCore.ps1",
   "scripts/monitoring/Install-MonitoringTargetAgent.ps1",
   "scripts/monitoring/Configure-EsusPecApplicationExporters.ps1",
+  "scripts/monitoring/Install-InfisicalMonitoringExporters.ps1",
   "scripts/monitoring/templates/prometheus.yml",
   "scripts/monitoring/templates/loki.yml",
+  "scripts/monitoring/templates/blackbox.yml",
   "scripts/monitoring/templates/alloy-core.alloy",
   "scripts/monitoring/templates/alloy-linux-target.alloy",
   "scripts/monitoring/templates/grafana-datasources.yml",
@@ -20,6 +22,7 @@ $requiredArtifacts = @(
   "scripts/monitoring/dashboards/esus-monitoring-overview.json",
   "scripts/monitoring/dashboards/monitoring-core-ct190.json",
   "scripts/monitoring/dashboards/esus-pec-ct133.json",
+  "scripts/monitoring/dashboards/platform-services-ct110-ct120-ct134.json",
   "scripts/monitoring/dashboards/logs-diagnostics.json",
   "docs/monitoring/2026-06-14-centralized-monitoring.md",
   "docs/superpowers/specs/2026-06-14-esus-pec-centralized-monitoring-design.md"
@@ -54,6 +57,8 @@ foreach ($artifact in $artifacts) {
 
 $applicationExporterProvisioner =
   $artifactByPath["scripts/monitoring/Configure-EsusPecApplicationExporters.ps1"].Content
+$infisicalExporterProvisioner =
+  $artifactByPath["scripts/monitoring/Install-InfisicalMonitoringExporters.ps1"].Content
 $targetAgentProvisioner =
   $artifactByPath["scripts/monitoring/Install-MonitoringTargetAgent.ps1"].Content
 $coreProvisioner =
@@ -67,6 +72,12 @@ $activeApplicationExporterProvisioner = (
 
 $activeTargetAgentProvisioner = (
   $targetAgentProvisioner -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' } |
+    ForEach-Object { $_ -replace '\s+#.*$', '' }
+) -join "`n"
+
+$activeInfisicalExporterProvisioner = (
+  $infisicalExporterProvisioner -split "`r?`n" |
     Where-Object { $_ -notmatch '^\s*#' } |
     ForEach-Object { $_ -replace '\s+#.*$', '' }
 ) -join "`n"
@@ -282,11 +293,44 @@ if ($applicationExporterDelegationIndex -lt $healthSummaryIndex -or
 }
 
 foreach ($targetSummaryTerm in @(
+  '[string]$TargetMetricsHost = "192.168.1.209"',
+  'metricsHost = $TargetMetricsHost',
   'postgres_exporter = if ($applicationExporterSummary) { $applicationExporterSummary.postgres_exporter } else { "skipped" }',
   'jmx = if ($applicationExporterSummary) { $applicationExporterSummary.jmx } else { "skipped" }'
 )) {
   if ($activeTargetAgentProvisioner -notmatch [regex]::Escape($targetSummaryTerm)) {
     throw "Target agent summary must surface application exporter result: $targetSummaryTerm"
+  }
+}
+
+foreach ($infisicalExporterTerm in @(
+  "TargetCtid = 120",
+  'TargetName = "infisical"',
+  "prometheus-postgres-exporter",
+  "prometheus-redis-exporter",
+  "User=postgres",
+  "DATA_SOURCE_NAME=user=postgres host=/var/run/postgresql dbname=postgres sslmode=disable",
+  "--web.listen-address=0.0.0.0:9187",
+  "--redis.addr=redis://127.0.0.1:6379",
+  "--web.listen-address=0.0.0.0:9121",
+  "tcp dport 9187",
+  "tcp dport 9121",
+  'ip saddr "`$monitoring_core_host"',
+  "^pg_up 1",
+  "^redis_up 1"
+)) {
+  if ($activeInfisicalExporterProvisioner -notmatch [regex]::Escape($infisicalExporterTerm)) {
+    throw "Missing Infisical exporter provisioner term: $infisicalExporterTerm"
+  }
+}
+
+foreach ($forbiddenInfisicalExporterPattern in @(
+  '(?i)\bpassword\s*=',
+  '(?i)\bDATA_SOURCE_PASS',
+  '(?i)\bREDIS_PASSWORD\b'
+)) {
+  if ($activeInfisicalExporterProvisioner -match $forbiddenInfisicalExporterPattern) {
+    throw "Infisical exporter provisioner must not embed database or Redis passwords."
   }
 }
 
@@ -384,6 +428,8 @@ Assert-ArtifactContainsTerm "scripts/monitoring/Install-MonitoringTargetAgent.ps
 Assert-ArtifactContainsTerm "scripts/monitoring/Install-MonitoringTargetAgent.ps1" "esus-pec-lxc-5437" "monitoring target script"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/prometheus.yml" "Prometheus" "Prometheus template"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/loki.yml" "Loki" "Loki template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/blackbox.yml" "http_2xx_insecure_tls" "Blackbox HTTP module"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/blackbox.yml" "insecure_skip_verify: true" "Blackbox local TLS handling"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-core.alloy" "Alloy" "Alloy core template"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-linux-target.alloy" "Alloy" "Alloy target template"
 Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "Grafana" "Grafana datasource template"
@@ -446,8 +492,8 @@ foreach ($artifactPath in @("config/esus-pec.infisical.env.example")) {
 }
 
 $dashboardArtifacts = $artifacts | Where-Object { $_.Path -match '^scripts/monitoring/dashboards/.*\.json$' }
-if ($dashboardArtifacts.Count -ne 4) {
-  throw "Expected exactly 4 managed Grafana dashboards; found $($dashboardArtifacts.Count)."
+if ($dashboardArtifacts.Count -ne 5) {
+  throw "Expected exactly 5 managed Grafana dashboards; found $($dashboardArtifacts.Count)."
 }
 
 foreach ($dashboardArtifact in $dashboardArtifacts) {
@@ -537,6 +583,52 @@ foreach ($obsoleteCt133Job in @("esus-pec-lxc-5437-node", "esus-pec-lxc-5437-ngi
     throw "CT 133 dashboard references obsolete Prometheus job label: $obsoleteCt133Job"
   }
 }
+
+$platformDashboard =
+  $artifactByPath["scripts/monitoring/dashboards/platform-services-ct110-ct120-ct134.json"].Content
+$platformDashboardObject = $platformDashboard | ConvertFrom-Json
+$platformExpressions = @(
+  foreach ($panel in $platformDashboardObject.panels) {
+    if ($panel.PSObject.Properties.Name -notcontains "targets") {
+      continue
+    }
+    foreach ($target in $panel.targets) {
+      if ($target.PSObject.Properties.Name -contains "expr") {
+        [string]$target.expr
+      }
+    }
+  }
+)
+$platformNormalizedExpressionSet = (
+  $platformExpressions | ForEach-Object { $_ -replace '\s+', '' }
+) -join "`n"
+
+foreach ($platformTerm in @(
+  'probe_success{host="nginx"}',
+  'probe_success{host="infisical"}',
+  'probe_success{host="esus-pec-minio"}',
+  'nginx_up{host="nginx"}',
+  'minio_cluster_capacity_usable_free_bytes{host="esus-pec-minio"}',
+  'minio_cluster_bucket_total{host="esus-pec-minio"}',
+  'pg_up{host="infisical"}',
+  'redis_up{host="infisical"}',
+  'node_filesystem_avail_bytes{host=~"nginx|infisical|esus-pec-minio"'
+)) {
+  $normalizedPlatformTerm = $platformTerm -replace '\s+', ''
+  if ($platformNormalizedExpressionSet -notmatch [regex]::Escape($normalizedPlatformTerm)) {
+    throw "Missing platform services dashboard expression: $platformTerm"
+  }
+}
+
+foreach ($platformLogTerm in @(
+  'host=~"nginx|infisical|esus-pec-minio"',
+  'job=~"linux-target-journal|linux-target-syslog|linux-target-application-logs"'
+)) {
+  $normalizedPlatformLogTerm = $platformLogTerm -replace '\s+', ''
+  if ($platformNormalizedExpressionSet -notmatch [regex]::Escape($normalizedPlatformLogTerm)) {
+    throw "Missing platform services dashboard log selector term: $platformLogTerm"
+  }
+}
 foreach ($requiredCt133Selector in @(
   'host="esus-pec-lxc-5437"',
   'instance="192.168.1.209:9100"',
@@ -591,6 +683,17 @@ foreach ($sshScriptTransport in @(
 foreach ($requiredReadinessTerm in @("wait_http_ready()", "for attempt in", "sleep 2")) {
   if ($coreProvisioner -notmatch [regex]::Escape($requiredReadinessTerm)) {
     throw "Monitoring core readiness checks must wait for services instead of using a single curl attempt: $requiredReadinessTerm"
+  }
+}
+
+foreach ($requiredBlackboxCoreTerm in @(
+  "prometheus-blackbox-exporter",
+  "/etc/prometheus/blackbox.yml",
+  "127.0.0.1:9115",
+  "blackbox ="
+)) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredBlackboxCoreTerm)) {
+    throw "Monitoring core provisioner must manage Blackbox Exporter: $requiredBlackboxCoreTerm"
   }
 }
 
@@ -706,6 +809,24 @@ foreach ($term in @(
 foreach ($term in @("monitoring-core", "esus-pec-lxc-5437", "localhost:9090", "133")) {
   if ($prometheusTemplate -notmatch [regex]::Escape($term)) {
     throw "Missing Prometheus template term: $term"
+  }
+}
+
+foreach ($newTargetTerm in @(
+  "NGINX_CT_TARGET_METRICS_HOST:9100",
+  "NGINX_CT_TARGET_METRICS_HOST:9113",
+  "INFISICAL_CT_TARGET_METRICS_HOST:9100",
+  "INFISICAL_CT_TARGET_METRICS_HOST:9187",
+  "INFISICAL_CT_TARGET_METRICS_HOST:9121",
+  "MINIO_CT_TARGET_METRICS_HOST:9100",
+  "MINIO_CT_TARGET_METRICS_HOST:9000",
+  "/minio/v2/metrics/cluster",
+  "platform-http-probes",
+  "http_2xx_insecure_tls",
+  "127.0.0.1:9115"
+)) {
+  if ($prometheusTemplate -notmatch [regex]::Escape($newTargetTerm)) {
+    throw "Missing extra target Prometheus term: $newTargetTerm"
   }
 }
 

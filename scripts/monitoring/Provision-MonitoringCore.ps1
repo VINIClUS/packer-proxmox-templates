@@ -14,6 +14,9 @@ param(
   [int]$InitialTargetCtid = 133,
   [string]$InitialTargetName = "esus-pec-lxc-5437",
   [string]$InitialTargetMetricsHost = "192.168.1.209",
+  [string]$NginxTargetMetricsHost = "192.168.1.139",
+  [string]$InfisicalTargetMetricsHost = "192.168.1.226",
+  [string]$MinioTargetMetricsHost = "192.168.1.210",
   [switch]$SkipCreate,
   [switch]$SkipHealthChecks
 )
@@ -210,7 +213,7 @@ function Get-TemplateContent {
 function Get-ContainerServiceStates {
   $statusOutput = Invoke-ContainerBash -Label "core-service-states" -Script @'
 set -euo pipefail
-for service in prometheus grafana-server loki alloy; do
+for service in prometheus grafana-server loki alloy prometheus-blackbox-exporter; do
   printf '%s=%s\n' "$service" "$(systemctl is-active "$service" 2>/dev/null || true)"
 done
 '@
@@ -230,6 +233,7 @@ function Test-ContainerReadiness {
       prometheus = "skipped"
       grafana = "skipped"
       loki = "skipped"
+      blackbox = "skipped"
     }
   }
 
@@ -261,13 +265,14 @@ wait_http_ready() {
   return 1
 }
 
-for service in prometheus grafana-server loki alloy; do
+for service in prometheus grafana-server loki alloy prometheus-blackbox-exporter; do
   wait_service_active "$service" >/dev/null
 done
 
 wait_http_ready prometheus http://127.0.0.1:9090/-/ready
 wait_http_ready grafana http://127.0.0.1:3000/api/health
 wait_http_ready loki http://127.0.0.1:3100/ready
+wait_http_ready blackbox http://127.0.0.1:9115/metrics
 '@
 
   $readiness = [ordered]@{}
@@ -348,7 +353,7 @@ cat >/etc/apt/sources.list.d/grafana.list <<'APT'
 deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main
 APT
 apt-get update -qq
-apt-get install -y -qq grafana alloy >/dev/null
+apt-get install -y -qq grafana alloy prometheus-blackbox-exporter >/dev/null
 
 arch="`$(dpkg --print-architecture 2>/dev/null || uname -m)"
 case "`$arch" in
@@ -471,6 +476,7 @@ UNIT
 
 install -d -o root -g alloy -m 0750 /etc/alloy
 install -d -o root -g grafana -m 0750 /etc/grafana/provisioning/datasources
+install -d -o root -g root -m 0755 /etc/prometheus
 find /etc/grafana/provisioning -name sample.yaml -type f -delete
 rm -f /etc/grafana/provisioning/datasources/datasources.yml
 
@@ -480,9 +486,13 @@ Invoke-ContainerBash -Script $installScript -Label "core-install" | Out-Null
 
 $prometheusConfig = (Get-TemplateContent -Name "prometheus.yml").
   Replace("ESUS_PEC_LXC_TARGET_METRICS_HOST", $InitialTargetMetricsHost).
+  Replace("NGINX_CT_TARGET_METRICS_HOST", $NginxTargetMetricsHost).
+  Replace("INFISICAL_CT_TARGET_METRICS_HOST", $InfisicalTargetMetricsHost).
+  Replace("MINIO_CT_TARGET_METRICS_HOST", $MinioTargetMetricsHost).
   Replace("esus-pec-lxc-5437", $InitialTargetName).
   Replace('ctid: "133"', ('ctid: "{0}"' -f $InitialTargetCtid))
 $lokiConfig = Get-TemplateContent -Name "loki.yml"
+$blackboxConfig = Get-TemplateContent -Name "blackbox.yml"
 $alloyConfig = (Get-TemplateContent -Name "alloy-core.alloy").
   Replace("monitoring-core", $Hostname).
   Replace('ctid = "190"', ('ctid = "{0}"' -f $Ctid))
@@ -505,13 +515,14 @@ trap - EXIT HUP INT TERM
 '@ | Out-Null
 
 Push-ContainerFile -Path "/etc/loki/loki.yml" -Content $lokiConfig -Owner "loki" -Group "loki" -Mode "0644"
+Push-ContainerFile -Path "/etc/prometheus/blackbox.yml" -Content $blackboxConfig -Owner "root" -Group "root" -Mode "0644"
 Push-ContainerFile -Path "/etc/alloy/config.alloy" -Content $alloyConfig -Owner "root" -Group "alloy" -Mode "0640"
 
 Invoke-ContainerBash -Label "core-services-restart" -Script @'
 set -euo pipefail
 systemctl daemon-reload
-systemctl enable prometheus grafana-server loki alloy >/dev/null
-systemctl restart prometheus grafana-server loki alloy
+systemctl enable prometheus grafana-server loki alloy prometheus-blackbox-exporter >/dev/null
+systemctl restart prometheus grafana-server loki alloy prometheus-blackbox-exporter
 '@ | Out-Null
 
 if ($SkipHealthChecks) {

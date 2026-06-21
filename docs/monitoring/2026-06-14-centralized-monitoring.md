@@ -15,6 +15,9 @@ the same collection shape as CT `133`: production uses Tomcat instead of the
 CT `133` Nginx termination pattern. SIHA VM `7001` remains future work until the
 target OS and systems are ready for monitored agent installation.
 
+The second platform rollout adds observability for CT `110 nginx`, CT
+`120 infisical`, and CT `134 esus-pec-minio`.
+
 ## Topology
 
 ### Monitoring Core
@@ -44,6 +47,25 @@ target OS and systems are ready for monitored agent installation.
   before applying agents.
 - SIHA: VM `7001`, future target after the OS and billing systems are ready for
   monitored access.
+
+### Platform Service Targets
+
+- CTID: `110`
+  - Hostname: `nginx`
+  - Metrics host: `192.168.1.139`
+  - Coverage: node exporter, Alloy logs, Nginx exporter, Blackbox HTTP probe.
+- CTID: `120`
+  - Hostname: `infisical`
+  - Metrics host: `192.168.1.226`
+  - Coverage: node exporter, Alloy logs, Blackbox `/health` probe, PostgreSQL
+    exporter through local peer authentication, Redis exporter through local
+    `redis://127.0.0.1:6379`.
+- CTID: `134`
+  - Hostname: `esus-pec-minio`
+  - Metrics host: `192.168.1.210`
+  - Coverage: node exporter, Alloy logs, Blackbox HTTPS health probe, native
+    MinIO Prometheus metrics at `/minio/v2/metrics/cluster` with local TLS
+    verification disabled in Prometheus for the self-signed endpoint.
 
 ## Agent Choice
 
@@ -122,6 +144,7 @@ The managed folder is `e-SUS PEC Monitoring` with folder UID
 - `e-SUS Monitoring Overview`
 - `Monitoring Core CT 190`
 - `e-SUS PEC CT 133`
+- `Platform Services CT 110 120 134`
 - `Logs and Diagnostics`
 
 Datasource UIDs are fixed as `prometheus` and `loki`. The publisher manages
@@ -170,6 +193,33 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Provi
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-MonitoringTargetAgent.ps1 -ConfigurePostgresExporter -ConfigureJmxExporter -ApplyJavaServiceChange
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Publish-GrafanaDashboards.ps1
 ```
+
+Platform service validation:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-MonitoringTargetAgent.ps1 -TargetCtid 110 -TargetName nginx -TargetMetricsHost 192.168.1.139
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-MonitoringTargetAgent.ps1 -TargetCtid 120 -TargetName infisical -TargetMetricsHost 192.168.1.226
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-MonitoringTargetAgent.ps1 -TargetCtid 134 -TargetName esus-pec-minio -TargetMetricsHost 192.168.1.210
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Install-InfisicalMonitoringExporters.ps1
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Provision-MonitoringCore.ps1 -SkipCreate
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/monitoring/Publish-GrafanaDashboards.ps1
+```
+
+Expected platform checks:
+
+- CT `110`: `alloy`, `prometheus-node-exporter`, and
+  `prometheus-nginx-exporter` active; Prometheus reports
+  `up{host="nginx",instance="192.168.1.139:9113"} == 1` and
+  `nginx_up{host="nginx"} == 1`.
+- CT `120`: `alloy`, `prometheus-node-exporter`,
+  `prometheus-postgres-exporter`, and `prometheus-redis-exporter` active;
+  Prometheus reports `pg_up{host="infisical"} == 1` and
+  `redis_up{host="infisical"} == 1`.
+- CT `134`: `alloy` and `prometheus-node-exporter` active; Prometheus reports
+  `up{job="esus-pec-minio-native"} == 1` and MinIO native metrics such as
+  `minio_cluster_bucket_total{host="esus-pec-minio"}`.
+- Blackbox probes report `probe_success == 1` for `nginx`, `infisical`, and
+  `esus-pec-minio`.
 
 Expected live checks:
 
@@ -269,6 +319,18 @@ The database role is not removed automatically. If the `prometheus_exporter`
 role should be removed later, first confirm that no dashboard, Prometheus job,
 or external operator still depends on it, then perform a separate reviewed DB
 cleanup.
+
+Rollback platform service exporters:
+
+```powershell
+rtk ssh <proxmox-ssh-target> "pct exec 110 -- bash -lc 'systemctl disable --now prometheus-nginx-exporter 2>/dev/null || true; rm -f /etc/nginx/conf.d/monitoring-stub-status.conf; nginx -t && systemctl reload nginx'"
+rtk ssh <proxmox-ssh-target> "pct exec 120 -- bash -lc 'systemctl disable --now prometheus-postgres-exporter prometheus-redis-exporter infisical-monitoring-exporters-firewall 2>/dev/null || true; rm -f /etc/systemd/system/prometheus-postgres-exporter.service /etc/systemd/system/prometheus-redis-exporter.service /etc/systemd/system/infisical-monitoring-exporters-firewall.service /usr/local/sbin/apply-infisical-monitoring-exporter-firewall; systemctl daemon-reload'"
+rtk ssh <proxmox-ssh-target> "pct exec 190 -- bash -lc 'systemctl disable --now prometheus-blackbox-exporter 2>/dev/null || true; rm -f /etc/prometheus/blackbox.yml; systemctl restart prometheus'"
+```
+
+This rollback does not remove node exporter or Alloy from CT `110`, `120`, or
+`134`; remove those only after confirming no other dashboard or log pipeline
+depends on them.
 
 Review the JMX proposal before making or rolling back Java changes. The current
 agent install writes review material and does not apply a Java service change by
@@ -392,3 +454,35 @@ Application exporter evidence collected on 2026-06-20:
 - Prometheus query
   `jvm_memory_bytes_used{host="esus-pec-lxc-5437",area="heap"}` returned a
   non-empty vector.
+
+Platform service evidence collected on 2026-06-21:
+
+- CT `110 nginx`: target installer completed with `alloy=active`,
+  `node_exporter=active`, `nginx=stub_status_local`, and
+  `nginx_exporter=active`.
+- CT `120 infisical`: target installer completed with `alloy=active` and
+  `node_exporter=active`; `Install-InfisicalMonitoringExporters.ps1` completed
+  with `postgres_exporter=ready`, `redis_exporter=ready`, and
+  `firewall=active`.
+- CT `134 esus-pec-minio`: target installer completed with `alloy=active` and
+  `node_exporter=active`.
+- CT `190 monitoring-core`: `Provision-MonitoringCore.ps1 -SkipCreate`
+  completed with `prometheus-blackbox-exporter=active` and Blackbox readiness
+  `ready`.
+- Grafana dashboard publisher updated existing dashboards and created
+  `platform-services-ct110-ct120-ct134`; dashboard count is `5`, database
+  health is `ok`, and datasource UIDs `prometheus` and `loki` were updated.
+- Prometheus query `up{host="nginx",instance="192.168.1.139:9113"}` returned
+  value `1`.
+- Prometheus query `up{host="infisical",instance="192.168.1.226:9187"}`
+  returned value `1`.
+- Prometheus query `up{host="infisical",instance="192.168.1.226:9121"}`
+  returned value `1`.
+- Prometheus query `up{job="esus-pec-minio-native"}` returned value `1`.
+- Prometheus query
+  `probe_success{host=~"nginx|infisical|esus-pec-minio"}` returned value `1`
+  for all three targets.
+- Representative native metrics returned non-empty vectors:
+  `nginx_up{host="nginx"}`, `pg_up{host="infisical"}`,
+  `redis_up{host="infisical"}`, and
+  `minio_cluster_bucket_total{host="esus-pec-minio"}`.

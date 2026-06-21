@@ -2,6 +2,7 @@ param(
   [string]$ConfigFile = "config/Proxmox.pkrvars.hcl",
   [int]$TargetCtid = 133,
   [string]$TargetName = "esus-pec-lxc-5437",
+  [string]$TargetMetricsHost = "192.168.1.209",
   [string]$MonitoringCoreHost = "192.168.1.190",
   [switch]$ConfigurePostgresExporter,
   [switch]$ConfigureJmxExporter,
@@ -489,7 +490,7 @@ if ($ConfigurePostgresExporter -or $ConfigureJmxExporter) {
     ConfigFile = $ConfigFile
     TargetCtid = $TargetCtid
     TargetName = $TargetName
-    TargetMetricsHost = "192.168.1.209"
+    TargetMetricsHost = $TargetMetricsHost
     MonitoringCoreHost = $MonitoringCoreHost
     ConfigurePostgresExporter = $ConfigurePostgresExporter
     ConfigureJmxExporter = $ConfigureJmxExporter
@@ -504,6 +505,7 @@ $serviceSummary = [ordered]@{
   target = [ordered]@{
     ctid = $TargetCtid
     name = $TargetName
+    metricsHost = $TargetMetricsHost
   }
   alloy = $health["alloy"]
   node_exporter = $health["node_exporter"]
