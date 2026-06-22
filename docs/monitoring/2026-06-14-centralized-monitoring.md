@@ -26,8 +26,10 @@ The second platform rollout adds observability for CT `110 nginx`, CT
 - Hostname: `monitoring-core`
 - Runtime model: native Grafana/Alloy and upstream Prometheus/Loki systemd
   services, not Docker.
-- Prometheus: `http://192.168.1.190:9090`
-- Grafana: `http://192.168.1.190:3000`
+- Prometheus origin: `http://192.168.1.190:9090`
+- Grafana origin: `http://192.168.1.190:3000`
+- Prometheus public URL: `https://prometheus.vinisantana.com`
+- Grafana public URL: `https://grafana.vinisantana.com`
 - Loki: `http://192.168.1.190:3100`
 - Grafana Alloy: local service on CT `190`; the default Alloy diagnostic
   endpoint is local-only on port `12345` when enabled by the packaged service.
@@ -124,7 +126,8 @@ Managed dashboards live in `scripts/monitoring/dashboards` and are published
 through the Grafana API using these local `.env` keys:
 
 ```text
-grafana_url=http://192.168.1.190:3000
+grafana_url=https://grafana.vinisantana.com
+prometheus_url=https://prometheus.vinisantana.com
 grafana_token=<Grafana service account token>
 ```
 

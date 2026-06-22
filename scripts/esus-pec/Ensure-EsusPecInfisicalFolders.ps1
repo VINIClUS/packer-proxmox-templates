@@ -6,7 +6,8 @@
   [string]$RuntimeSecretPath = "/test",
   [string]$InstallationSecretPath = "/test/InstallationConfig",
   [string]$MonitoringSecretPath = "/test/Monitoring",
-  [string]$ObjectStorageSecretPath = "/test/ObjectStorage"
+  [string]$ObjectStorageSecretPath = "/test/ObjectStorage",
+  [string]$EdgeProxySecretPath = "/test/EdgeProxy"
 )
 
 Set-StrictMode -Version Latest
@@ -163,7 +164,7 @@ function Test-InfisicalFolderPath {
 }
 
 $headers = @{ Authorization = "Bearer $(Get-InfisicalToken)" }
-$targetPaths = @($RuntimeSecretPath) + @(Get-InstallationSecretPaths) + @($MonitoringSecretPath, $ObjectStorageSecretPath)
+$targetPaths = @($RuntimeSecretPath) + @(Get-InstallationSecretPaths) + @($MonitoringSecretPath, $ObjectStorageSecretPath, $EdgeProxySecretPath)
 $events = @()
 
 foreach ($path in $targetPaths) {

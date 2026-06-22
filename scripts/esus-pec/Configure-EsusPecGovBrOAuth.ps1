@@ -26,9 +26,9 @@ $InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" 
 $InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $infisicalEnvFile
 $InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
 $resolvedAppCtid = [int](Resolve-InfisicalSetting -Name "ESUS_PEC_LXC_CTID" -CurrentValue $Ctid -EnvFilePath $infisicalEnvFile)
-$resolvedProxyCtid = [int](Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_CTID" -CurrentValue $ProxyCtid -EnvFilePath $infisicalEnvFile)
-$resolvedProxyExpectedHostname = Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_NAME" -CurrentValue $ProxyExpectedHostname -EnvFilePath $infisicalEnvFile
-$Domain = Resolve-InfisicalSetting -Name "ESUS_PEC_PUBLIC_DOMAIN" -CurrentValue $Domain -EnvFilePath $infisicalEnvFile
+$resolvedProxyCtid = [int](Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_CTID" -CurrentValue $ProxyCtid -EnvFilePath $infisicalEnvFile)
+$resolvedProxyExpectedHostname = Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_NAME" -CurrentValue $ProxyExpectedHostname -EnvFilePath $infisicalEnvFile
+$Domain = Resolve-InfisicalSetting -Name "ESUS_PEC_PRODUCTION_DOMAIN" -CurrentValue $Domain -EnvFilePath $infisicalEnvFile
 $LocalIp = Resolve-InfisicalSetting -Name "ESUS_PEC_LXC_IP" -CurrentValue $LocalIp -EnvFilePath $infisicalEnvFile
 $ServerTimezone = Resolve-InfisicalSetting -Name "ESUS_PEC_SERVER_TIMEZONE" -CurrentValue $ServerTimezone -EnvFilePath $infisicalEnvFile
 

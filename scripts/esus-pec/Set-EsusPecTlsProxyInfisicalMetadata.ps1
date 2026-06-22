@@ -11,6 +11,7 @@ param(
   [string]$ProxyIp = "",
   [string]$ProxyName = "",
   [string]$UpstreamIp = "",
+  [string]$UpstreamUrl = "",
   [string]$LetsEncryptEmail = "",
   [string]$AcmePublicHttpStatus = "",
   [string]$UpstreamHttpStatus = ""
@@ -25,12 +26,16 @@ $InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $e
 $InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $envFile
 $InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $envFile
 $InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $envFile
-$Domain = Resolve-InfisicalSetting -Name "ESUS_PEC_PUBLIC_DOMAIN" -CurrentValue $Domain -EnvFilePath $envFile
+$Domain = Resolve-InfisicalSetting -Name "ESUS_PEC_PRODUCTION_DOMAIN" -CurrentValue $Domain -EnvFilePath $envFile
 $PublicIp = Resolve-InfisicalSetting -Name "PUBLIC_IP" -CurrentValue $PublicIp -EnvFilePath $envFile
-$ProxyCtid = Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_CTID" -CurrentValue $ProxyCtid -EnvFilePath $envFile
-$ProxyIp = Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_IP" -CurrentValue $ProxyIp -EnvFilePath $envFile
-$ProxyName = Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_NAME" -CurrentValue $ProxyName -EnvFilePath $envFile
-$UpstreamIp = Resolve-InfisicalSetting -Name "ESUS_PEC_LXC_IP" -CurrentValue $UpstreamIp -EnvFilePath $envFile
+$ProxyCtid = Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_CTID" -CurrentValue $ProxyCtid -EnvFilePath $envFile
+$ProxyIp = Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_IP" -CurrentValue $ProxyIp -EnvFilePath $envFile
+$ProxyName = Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_NAME" -CurrentValue $ProxyName -EnvFilePath $envFile
+$UpstreamUrl = Resolve-InfisicalSetting -Name "ESUS_PEC_PRODUCTION_UPSTREAM_URL" -CurrentValue $UpstreamUrl -EnvFilePath $envFile
+if (-not [uri]::IsWellFormedUriString($UpstreamUrl, [System.UriKind]::Absolute)) {
+  throw "Invalid ESUS_PEC_PRODUCTION_UPSTREAM_URL '$UpstreamUrl'. Provide an absolute URL."
+}
+$UpstreamIp = if (-not [string]::IsNullOrWhiteSpace($UpstreamIp)) { $UpstreamIp } else { ([uri]$UpstreamUrl).Host }
 $LetsEncryptEmail = Resolve-InfisicalSetting -Name "LETSENCRYPT_EMAIL" -CurrentValue $LetsEncryptEmail -EnvFilePath $envFile
 
 if ([string]::IsNullOrWhiteSpace($AcmePublicHttpStatus)) {
@@ -96,7 +101,7 @@ $secrets = [ordered]@{
     ESUS_PEC_TLS_PROXY_LXC_IP = $ProxyIp
     ESUS_PEC_TLS_PROXY_LXC_NAME = $ProxyName
     ESUS_PEC_TLS_UPSTREAM_LXC_IP = $UpstreamIp
-    ESUS_PEC_TLS_UPSTREAM_URL = "http://$UpstreamIp:8080/"
+    ESUS_PEC_TLS_UPSTREAM_URL = $UpstreamUrl
     ESUS_PEC_TLS_LETSENCRYPT_EMAIL = $LetsEncryptEmail
     ESUS_PEC_TLS_TERMINATION = "nginx-edge-lxc-certbot"
     ESUS_PEC_TLS_ACME_PUBLIC_HTTP_STATUS = $AcmePublicHttpStatus

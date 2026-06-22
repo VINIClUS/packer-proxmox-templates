@@ -8,6 +8,7 @@
   [string]$InstallationSecretPath = "/test/InstallationConfig",
   [string]$MonitoringSecretPath = "/test/Monitoring",
   [string]$ObjectStorageSecretPath = "/test/ObjectStorage",
+  [string]$EdgeProxySecretPath = "/test/EdgeProxy",
   [string]$OutputPath = "output/esus-pec-infisical-variable-analysis.json"
 )
 
@@ -128,7 +129,11 @@ function Get-DesiredInfisicalPath {
     return $ObjectStorageSecretPath
   }
 
-  if ($Name -eq "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD" -or $Name -in @("grafana_url", "grafana_token")) {
+  if ($Name -match "^EDGE_PROXY_" -or $Name -match "^CLOUDFLARE_" -or $Name -match "^ESUS_PEC_PRODUCTION_" -or $Name -in @("INFISICAL_PUBLIC_URL", "PROXMOX_PUBLIC_URL")) {
+    return $EdgeProxySecretPath
+  }
+
+  if ($Name -eq "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD" -or $Name -in @("grafana_url", "grafana_token", "prometheus_url")) {
     return $MonitoringSecretPath
   }
 
@@ -187,7 +192,7 @@ function New-PathEntry {
 
 $headers = @{ Authorization = "Bearer $(Get-InfisicalToken)" }
 $exampleNames = @(Get-ExampleSecretNames -Path $ExampleFile)
-$managedPaths = @($RuntimeSecretPath) + @(Get-InstallationSecretPaths) + @($MonitoringSecretPath, $ObjectStorageSecretPath)
+$managedPaths = @($RuntimeSecretPath) + @(Get-InstallationSecretPaths) + @($MonitoringSecretPath, $ObjectStorageSecretPath, $EdgeProxySecretPath)
 
 $currentByPath = [ordered]@{}
 foreach ($path in $managedPaths) {
@@ -257,15 +262,18 @@ $report = [ordered]@{
   installationPaths = @($installationPaths)
   monitoringPath = $MonitoringSecretPath
   objectStoragePath = $ObjectStorageSecretPath
+  edgeProxyPath = $EdgeProxySecretPath
   counts = [ordered]@{
     runtimeCurrent = @($currentByPath[$RuntimeSecretPath]).Count
     installationCurrent = $installationCurrent
     monitoringCurrent = @($currentByPath[$MonitoringSecretPath]).Count
     objectStorageCurrent = @($currentByPath[$ObjectStorageSecretPath]).Count
+    edgeProxyCurrent = @($currentByPath[$EdgeProxySecretPath]).Count
     expectedRuntime = @($expectedByPath[$RuntimeSecretPath]).Count
     expectedInstallation = $expectedInstallation
     expectedMonitoring = @($expectedByPath[$MonitoringSecretPath]).Count
     expectedObjectStorage = @($expectedByPath[$ObjectStorageSecretPath]).Count
+    expectedEdgeProxy = @($expectedByPath[$EdgeProxySecretPath]).Count
     duplicateNames = $duplicateNames.Count
     missing = $missing.Count
     misplaced = $misplaced.Count

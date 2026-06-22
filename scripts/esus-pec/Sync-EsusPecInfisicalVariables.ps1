@@ -9,6 +9,7 @@
   [string]$InstallationSecretPath = "/test/InstallationConfig",
   [string]$MonitoringSecretPath = "/test/Monitoring",
   [string]$ObjectStorageSecretPath = "/test/ObjectStorage",
+  [string]$EdgeProxySecretPath = "/test/EdgeProxy",
   [switch]$AllowBootstrapEmptySources,
   [switch]$DryRun
 )
@@ -284,7 +285,10 @@ function Get-DesiredInfisicalPath {
   )
 
   if ($Name -match "^ESUS_PEC_OBJECT_STORAGE_" -or $Name -match "^ESUS_PEC_WALG_") { return $ObjectStorageSecretPath }
-  if ($Name -eq "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD" -or $Name -in @("grafana_url", "grafana_token")) { return $MonitoringSecretPath }
+  if ($Name -match "^EDGE_PROXY_") { return $EdgeProxySecretPath }
+  if ($Name -match "^CLOUDFLARE_") { return $EdgeProxySecretPath }
+  if ($Name -match "^ESUS_PEC_PRODUCTION_" -or $Name -in @("INFISICAL_PUBLIC_URL", "PROXMOX_PUBLIC_URL")) { return $EdgeProxySecretPath }
+  if ($Name -eq "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD" -or $Name -in @("grafana_url", "grafana_token", "prometheus_url")) { return $MonitoringSecretPath }
   if ($Name -match "^ESUS_PEC_DB_" -or $Name -in $runtimeExactNames) { return $RuntimeSecretPath }
   if ($Name -match "^ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_" -or $Name -eq "ESUS_PEC_TRANSMISSAO_CREDENCIAIS_INTEGRACAO_EXPECTED_COUNT") { return "$InstallationSecretPath/TransmissaoAPI" }
   if ($Name -match "^ESUS_PEC_TRANSMISSAO_") { return "$InstallationSecretPath/Transmissao" }
@@ -304,7 +308,7 @@ function Get-DesiredInfisicalPath {
 
 function Test-ManagedInfisicalName {
   param([Parameter(Mandatory = $true)][string]$Name)
-  return ($Name -match "^ESUS_PEC_" -or $Name -in @("grafana_url", "grafana_token"))
+  return ($Name -match "^ESUS_PEC_" -or $Name -match "^EDGE_PROXY_" -or $Name -match "^CLOUDFLARE_" -or $Name -in @("grafana_url", "grafana_token", "prometheus_url", "INFISICAL_PUBLIC_URL", "PROXMOX_PUBLIC_URL"))
 }
 
 function Get-RemotePecDatabaseValues {
@@ -411,7 +415,7 @@ $sshTarget = "$sshUser@$sshHost"
 
 $headers = @{ Authorization = "Bearer $(Get-InfisicalToken)" }
 $installationPaths = @(Get-InstallationSecretPaths)
-$managedPaths = @($RuntimeSecretPath) + $installationPaths + @($MonitoringSecretPath, $ObjectStorageSecretPath)
+$managedPaths = @($RuntimeSecretPath) + $installationPaths + @($MonitoringSecretPath, $ObjectStorageSecretPath, $EdgeProxySecretPath)
 
 $existingByPath = @{}
 foreach ($path in $managedPaths) {
@@ -422,7 +426,8 @@ $existingRuntime = $existingByPath[$RuntimeSecretPath]
 $existingInstall = Merge-SecretMaps -Maps @($installationPaths | ForEach-Object { $existingByPath[$_] })
 $existingMonitoring = $existingByPath[$MonitoringSecretPath]
 $existingObjectStorage = $existingByPath[$ObjectStorageSecretPath]
-$allSources = @($existingRuntime, $existingInstall, $existingMonitoring, $existingObjectStorage)
+$existingEdgeProxy = $existingByPath[$EdgeProxySecretPath]
+$allSources = @($existingRuntime, $existingInstall, $existingMonitoring, $existingObjectStorage, $existingEdgeProxy)
 
 $expectedRuntime = @{}
 foreach ($entry in (Get-RemotePecDatabaseValues -Target $sshTarget -Port $sshPort -KeyFile $sshKey -ContainerId $Ctid).GetEnumerator()) {
@@ -504,10 +509,12 @@ foreach ($path in $installationPaths) {
   installationPaths = @($installationPaths)
   monitoringPath = $MonitoringSecretPath
   objectStoragePath = $ObjectStorageSecretPath
+  edgeProxyPath = $EdgeProxySecretPath
   expectedRuntimeCount = $expectedByPath[$RuntimeSecretPath].Count
   expectedInstallationCount = $expectedInstallationCount
   expectedMonitoringCount = $expectedByPath[$MonitoringSecretPath].Count
   expectedObjectStorageCount = $expectedByPath[$ObjectStorageSecretPath].Count
+  expectedEdgeProxyCount = $expectedByPath[$EdgeProxySecretPath].Count
   createdCount = $created.Count
   updatedCount = $updated.Count
   deletedCount = $deleted.Count

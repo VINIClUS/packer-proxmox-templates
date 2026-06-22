@@ -26,11 +26,15 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
 
 $envFile = ".env"
-$resolvedProxyCtid = [int](Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_CTID" -CurrentValue $ProxyCtid -EnvFilePath $envFile)
-$resolvedProxyIp = Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_IP" -CurrentValue $ProxyIp -EnvFilePath $envFile
-$resolvedProxyExpectedHostname = Resolve-InfisicalSetting -Name "ESUS_PEC_PROXY_LXC_NAME" -CurrentValue $ProxyExpectedHostname -EnvFilePath $envFile
-$resolvedPecIp = Resolve-InfisicalSetting -Name "ESUS_PEC_LXC_IP" -CurrentValue $PecIp -EnvFilePath $envFile
-$resolvedDomain = Resolve-InfisicalSetting -Name "ESUS_PEC_PUBLIC_DOMAIN" -CurrentValue $Domain -EnvFilePath $envFile
+$resolvedProxyCtid = [int](Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_CTID" -CurrentValue $ProxyCtid -EnvFilePath $envFile)
+$resolvedProxyIp = Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_IP" -CurrentValue $ProxyIp -EnvFilePath $envFile
+$resolvedProxyExpectedHostname = Resolve-InfisicalSetting -Name "EDGE_PROXY_LXC_NAME" -CurrentValue $ProxyExpectedHostname -EnvFilePath $envFile
+$resolvedProductionUpstreamUrl = Resolve-InfisicalSetting -Name "ESUS_PEC_PRODUCTION_UPSTREAM_URL" -CurrentValue "" -EnvFilePath $envFile
+if (-not [uri]::IsWellFormedUriString($resolvedProductionUpstreamUrl, [System.UriKind]::Absolute)) {
+  throw "Invalid ESUS_PEC_PRODUCTION_UPSTREAM_URL '$resolvedProductionUpstreamUrl'. Provide an absolute URL."
+}
+$resolvedPecIp = if (-not [string]::IsNullOrWhiteSpace($PecIp)) { $PecIp } else { ([uri]$resolvedProductionUpstreamUrl).Host }
+$resolvedDomain = Resolve-InfisicalSetting -Name "ESUS_PEC_PRODUCTION_DOMAIN" -CurrentValue $Domain -EnvFilePath $envFile
 $resolvedPublicIp = Resolve-InfisicalSetting -Name "PUBLIC_IP" -CurrentValue $PublicIp -EnvFilePath $envFile
 $resolvedAppCtid = $null
 if ($DisableApplicationNginx) {
@@ -46,11 +50,11 @@ if (-not $RegisterWithoutEmail) {
 
 $parsedPecIp = $null
 if (-not [System.Net.IPAddress]::TryParse($resolvedPecIp, [ref]$parsedPecIp)) {
-  throw "Invalid ESUS_PEC_LXC_IP '$resolvedPecIp'."
+  throw "Invalid production upstream IP '$resolvedPecIp'."
 }
 $parsedProxyIp = $null
 if (-not [System.Net.IPAddress]::TryParse($resolvedProxyIp, [ref]$parsedProxyIp)) {
-  throw "Invalid ESUS_PEC_PROXY_LXC_IP '$resolvedProxyIp'."
+  throw "Invalid EDGE_PROXY_LXC_IP '$resolvedProxyIp'."
 }
 $parsedPublicIp = $null
 if (-not [System.Net.IPAddress]::TryParse($resolvedPublicIp, [ref]$parsedPublicIp)) {
