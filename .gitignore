@@ -19,6 +19,7 @@ env/*
 
 .iso/*
 *.log
+*.backup
 .Codex/*
 .Codex
 logs/*
@@ -28,3 +29,13 @@ packer_cache/
 .downloads/
 id_ed25519.pub
 id_ed25519
+.serena
+.iso
+Setup.md
+output
+.Codex
+AGENTS.md
+
+GovBrOAuth.txt
+pbf_354130_12026_0.zip
+XmlParaESUS31_354130.zip

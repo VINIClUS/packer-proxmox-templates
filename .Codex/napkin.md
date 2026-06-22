@@ -19,6 +19,8 @@
    Do instead: prefix repository commands with `rtk`, including git and validation commands.
 
 ## Domain Behavior Guardrails
+1. **[2026-06-09] Windows Proxmox Cloud-Init needs Cloudbase-Init before Sysprep**
+   Do instead: install/configure Cloudbase-Init for ConfigDrive in the Windows template and run Sysprep with Cloudbase `Unattend.xml`; Proxmox `ciuser`/`cipassword` are not applied by QEMU Guest Agent or OpenSSH alone.
 1. **[2026-05-27] e-SUS PEC LXC needs `RemoveIPC=no`**
    Do instead: before the first PEC installer run in LXC, set `/etc/systemd/logind.conf.d/99-esus-pec-postgresql.conf` with `RemoveIPC=no`; the bundled PostgreSQL 9.6 uses SysV semaphores and the installer creates `postgres` as UID 1000.
 2. **[2026-05-22] Keep secrets out of tracked files**
