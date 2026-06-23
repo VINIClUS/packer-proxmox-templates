@@ -273,11 +273,7 @@ function Get-NginxRouteBlock {
 "@
   }
 
-  return @"
-server {
-    listen 80;
-    server_name $($Route.domain);
-
+  $routeBody = @"
     client_max_body_size $($Route.clientMaxBodySize);
 $authDirectives
     location / {
@@ -293,6 +289,45 @@ $sslDirectives
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
     }
+}
+"@
+
+  return @"
+server {
+    listen 80;
+    server_name $($Route.domain);
+$routeBody
+server {
+    listen 443 ssl;
+    server_name $($Route.domain);
+
+    ssl_certificate /etc/nginx/edge-proxy-origin.crt;
+    ssl_certificate_key /etc/nginx/edge-proxy-origin.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+$routeBody
+"@
+}
+
+function Get-NginxDefaultServerBlock {
+  return @"
+server {
+    listen 80 default_server;
+    server_name _;
+
+    return 404;
+}
+
+server {
+    listen 443 ssl default_server;
+    server_name _;
+
+    ssl_certificate /etc/nginx/edge-proxy-origin.crt;
+    ssl_certificate_key /etc/nginx/edge-proxy-origin.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    return 404;
 }
 "@
 }
@@ -432,7 +467,9 @@ $routes = @(
 
 $nginxConfig = @(
   "# Managed by scripts/esus-pec/Configure-EdgeProxyRoutes.ps1"
-  "# Cloudflare handles TLS for vinisantana.com; this origin listens on HTTP."
+  "# Cloudflare handles public TLS for vinisantana.com; this origin listens on HTTP and HTTPS."
+  "# Explicit default servers prevent unknown Host headers from falling through to esus.vinisantana.com."
+  (Get-NginxDefaultServerBlock)
   ($routes | ForEach-Object { Get-NginxRouteBlock -Route $_ })
 ) -join "`n"
 
@@ -469,6 +506,8 @@ NGINX_CONFIG_B64='$nginxConfigB64'
 HTPASSWD_B64='$htpasswdB64'
 ROUTES_JSON_B64='$routesJsonB64'
 VALIDATE_ONLY='$validateOnlyFlag'
+ORIGIN_CERT="/etc/nginx/edge-proxy-origin.crt"
+ORIGIN_KEY="/etc/nginx/edge-proxy-origin.key"
 
 actual_hostname="`$(hostname -s)"
 if [ "`$actual_hostname" != "`$PROXY_EXPECTED_HOSTNAME" ]; then
@@ -478,7 +517,19 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends nginx ca-certificates curl jq
+apt-get install -y --no-install-recommends nginx ca-certificates curl jq openssl
+
+routes_json="`$(printf '%s' "`$ROUTES_JSON_B64" | base64 -d)"
+origin_san="`$(printf '%s' "`$routes_json" | jq -r '.[].domain | "DNS:" + .' | paste -sd, -)"
+if [ ! -s "`$ORIGIN_CERT" ] || [ ! -s "`$ORIGIN_KEY" ]; then
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 397 -nodes \
+    -keyout "`$ORIGIN_KEY" \
+    -out "`$ORIGIN_CERT" \
+    -subj "/CN=edge-proxy.vinisantana.com" \
+    -addext "subjectAltName=`$origin_san" >/dev/null 2>&1
+  chmod 0600 "`$ORIGIN_KEY"
+  chmod 0644 "`$ORIGIN_CERT"
+fi
 
 site_available="/etc/nginx/sites-available/edge-proxy-routes.conf"
 site_enabled="/etc/nginx/sites-enabled/edge-proxy-routes.conf"
@@ -504,7 +555,6 @@ else
   exit 0
 fi
 
-routes_json="`$(printf '%s' "`$ROUTES_JSON_B64" | base64 -d)"
 route_count="`$(printf '%s' "`$routes_json" | jq length)"
 echo "ROUTE_COUNT=`$route_count"
 for idx in `$(seq 0 `$((route_count - 1))); do
@@ -519,6 +569,12 @@ for idx in `$(seq 0 `$((route_count - 1))); do
     exit 1
   fi
 done
+
+default_status="`$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -H "Host: unknown.vinisantana.com" "http://127.0.0.1/" || true)"
+echo "DEFAULT_SERVER_STATUS=`$default_status"
+if [ "`$default_status" != "404" ]; then
+  exit 1
+fi
 
 echo "EDGE_PROXY_READY=1"
 echo "NGINX_ACTIVE=`$(systemctl is-active nginx || true)"

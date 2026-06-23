@@ -27,6 +27,10 @@ Let's Encrypt remains scoped to esus.presidenteepitacio.sp.gov.br.
 
 `192.168.1.253` is the functional and accessible production PEC server. Do not alter the host, services, edge proxy reference, DNS mapping, TLS upstream, or related Infisical variables without explicit operator authorization for the specific production change.
 
+The CT110 origin must define explicit `listen 80 default_server` and `listen 443 ssl default_server` blocks that return `404`. Unknown Host headers must never fall through to `esus.vinisantana.com`; that route is only the development PEC host, not the Nginx fallback.
+
+Cloudflare currently reaches the origin over HTTPS/443 for proxied `vinisantana.com` hosts. Each `vinisantana.com` route therefore needs both port `80` and port `443` origin listeners. The CT110 origin certificate is local to Nginx and is not the public browser-facing certificate; Cloudflare terminates public TLS.
+
 ## Variables
 
 Store route metadata in Infisical `/test/EdgeProxy`:
@@ -100,8 +104,30 @@ certificates because Cloudflare terminates TLS.
   - `proxmox.vinisantana.com` -> HTTP `200`
   - `grafana.vinisantana.com/api/health` -> HTTP `200`
   - `prometheus.vinisantana.com/-/ready` -> HTTP `401`, expected because Basic Auth is enabled.
+  - `unknown.vinisantana.com` -> HTTP `404`, expected from the explicit default server.
 - Direct internal MinIO readiness remained HTTP `200` on
   `https://192.168.1.210:9000/minio/health/ready`.
+
+2026-06-23 fallback diagnosis:
+
+- CT110 local Host-header probes route known hosts correctly on HTTP.
+- Unknown Host headers previously fell through to `esus.vinisantana.com`; the explicit default server now returns HTTP `404`.
+- Public probes for `s3.vinisantana.com`, `infisical.vinisantana.com`, `grafana.vinisantana.com`, and `prometheus.vinisantana.com` returned e-SUS HTML before adding 443 origin listeners, which indicates Cloudflare was reaching CT110 over HTTPS/443 and hitting the wrong default.
+- `minio.vinisantana.com` did not resolve in public DNS, and `infisical.vinisantana` without `.com` is not a valid configured hostname.
+- The local Cloudflare token check returned HTTP `401` / `Invalid API Token`; update the token before creating the missing `minio.vinisantana.com` DNS record through automation.
+
+2026-06-23 post-fix validation:
+
+- CT110 local HTTP and HTTPS Host-header probes returned:
+  - `esus.vinisantana.com` -> HTTP `200`
+  - `s3.vinisantana.com/minio/health/ready` -> HTTP `200`
+  - `minio.vinisantana.com` -> HTTP `200`
+  - `infisical.vinisantana.com` -> HTTP `200`
+  - `grafana.vinisantana.com/api/health` -> HTTP `200`
+  - `prometheus.vinisantana.com/-/ready` -> HTTP `401`, expected because Basic Auth is enabled.
+  - `unknown.vinisantana.com` -> HTTP `404`.
+- Public Cloudflare probes returned the expected service content for `s3.vinisantana.com`, `infisical.vinisantana.com`, `grafana.vinisantana.com`, and `prometheus.vinisantana.com` instead of e-SUS HTML.
+- `minio.vinisantana.com` still returned DNS failure and requires a Cloudflare DNS record after the token is corrected.
 
 Pending items:
 
