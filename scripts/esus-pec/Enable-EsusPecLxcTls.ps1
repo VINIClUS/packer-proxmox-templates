@@ -16,6 +16,7 @@ param(
   [switch]$ForceRenewCertificate,
   [switch]$UseStaging,
   [switch]$RegisterWithoutEmail,
+  [switch]$SkipPublicAcmePreflight,
   [switch]$SkipRenewDryRun,
   [switch]$DisableApplicationNginx,
   [switch]$SkipInfisical
@@ -222,6 +223,7 @@ $emailMode = if ($RegisterWithoutEmail) { "none" } else { "email" }
 $forceRenew = if ($ForceRenewCertificate) { "1" } else { "0" }
 $staging = if ($UseStaging) { "1" } else { "0" }
 $renewDryRun = if ($SkipRenewDryRun) { "0" } else { "1" }
+$publicAcmePreflight = if ($SkipPublicAcmePreflight) { "0" } else { "1" }
 
 $applyScript = @"
 set -euo pipefail
@@ -238,6 +240,7 @@ EMAIL_MODE="$emailMode"
 FORCE_RENEW="$forceRenew"
 USE_STAGING="$staging"
 RUN_RENEW_DRY_RUN="$renewDryRun"
+PUBLIC_ACME_PREFLIGHT="$publicAcmePreflight"
 
 WEBROOT="/var/www/letsencrypt"
 NGINX_SITE="/etc/nginx/sites-available/esus-pec-tls.conf"
@@ -316,6 +319,8 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header Upgrade `$http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_ssl_server_name on;
+        proxy_ssl_verify off;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
     }
@@ -345,14 +350,18 @@ systemctl reload nginx
 challenge_name="codex-preflight-`$(date +%s)"
 printf 'ok\n' > "`$WEBROOT/.well-known/acme-challenge/`$challenge_name"
 curl -fsS --max-time 10 --resolve "`$DOMAIN:80:127.0.0.1" "http://`$DOMAIN/.well-known/acme-challenge/`$challenge_name" >/dev/null
-pec_upstream_status="`$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "`$PEC_UPSTREAM_URL/" || true)"
+pec_upstream_status="`$(curl --insecure -sS -o /dev/null -w '%{http_code}' --max-time 20 "`$PEC_UPSTREAM_URL/" || true)"
 if [ "`$pec_upstream_status" != "200" ]; then
   echo "PEC_UPSTREAM_HTTP_STATUS=`$pec_upstream_status"
   exit 1
 fi
-public_http_status="`$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://`$DOMAIN/.well-known/acme-challenge/`$challenge_name" || true)"
+if [ "`$PUBLIC_ACME_PREFLIGHT" = "1" ]; then
+  public_http_status="`$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "http://`$DOMAIN/.well-known/acme-challenge/`$challenge_name" || true)"
+else
+  public_http_status="skipped"
+fi
 rm -f "`$WEBROOT/.well-known/acme-challenge/`$challenge_name"
-if [ "`$public_http_status" != "200" ]; then
+if [ "`$PUBLIC_ACME_PREFLIGHT" = "1" ] && [ "`$public_http_status" != "200" ]; then
   echo "ACME_PUBLIC_HTTP_STATUS=`$public_http_status"
   exit 1
 fi
@@ -405,7 +414,7 @@ fi
 
 renew_status=skipped
 if [ "`$RUN_RENEW_DRY_RUN" = "1" ]; then
-  certbot renew --cert-name "`$DOMAIN" --dry-run --non-interactive
+  certbot renew --cert-name "`$DOMAIN" --dry-run --non-interactive --no-random-sleep-on-renew
   renew_status=success
 fi
 

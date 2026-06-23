@@ -511,7 +511,7 @@ Nginx consolidation evidence collected on 2026-06-21:
   `/etc/nginx/sites-available/esus-pec-tls.conf`, proxying to
   the selected PEC upstream. For production
   `esus.presidenteepitacio.sp.gov.br`, the upstream is
-  `http://192.168.1.253:8080`; `http://192.168.1.209:8080` is the
+  `https://192.168.1.253`; `http://192.168.1.209:8080` is the
   development upstream for `esus.vinisantana.com`.
 - CT `133` still had `nginx` and `prometheus-nginx-exporter` active from the
   previous local TLS path. They were not disabled because trusted CT `110`

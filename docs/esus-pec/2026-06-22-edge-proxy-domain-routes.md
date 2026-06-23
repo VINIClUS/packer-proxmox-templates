@@ -23,7 +23,7 @@ Let's Encrypt remains scoped to esus.presidenteepitacio.sp.gov.br.
 | `proxmox.vinisantana.com` | `https://192.168.1.149:8006` | Proxmox UI, proxied with WebSocket headers. |
 | `grafana.vinisantana.com` | `http://192.168.1.190:3000` | Grafana UI/API. |
 | `prometheus.vinisantana.com` | `http://192.168.1.190:9090` | Protected by `EDGE_PROXY_PROMETHEUS_BASIC_AUTH_HTPASSWD`. |
-| `esus.presidenteepitacio.sp.gov.br` | `http://192.168.1.253:8080` | Production PEC; keep Certbot/Let's Encrypt on CT110. |
+| `esus.presidenteepitacio.sp.gov.br` | `https://192.168.1.253` | Production PEC; keep Certbot/Let's Encrypt on CT110. |
 
 ## Variables
 
@@ -60,7 +60,7 @@ Store public service URLs in their service folders:
 - `ESUS_PEC_PUBLIC_DOMAIN=esus.vinisantana.com`
 - `ESUS_PEC_PUBLIC_BASE_URL=https://esus.vinisantana.com`
 - `ESUS_PEC_PRODUCTION_DOMAIN=esus.presidenteepitacio.sp.gov.br`
-- `ESUS_PEC_PRODUCTION_UPSTREAM_URL=http://192.168.1.253:8080`
+- `ESUS_PEC_PRODUCTION_UPSTREAM_URL=https://192.168.1.253`
 - `ESUS_PEC_OBJECT_STORAGE_PUBLIC_API_URL=https://s3.vinisantana.com`
 - `ESUS_PEC_OBJECT_STORAGE_PUBLIC_CONSOLE_URL=https://minio.vinisantana.com`
 - `ESUS_PEC_WALG_AWS_ENDPOINT=https://192.168.1.210:9000`
