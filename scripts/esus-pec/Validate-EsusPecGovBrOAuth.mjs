@@ -103,7 +103,7 @@ async function main() {
   }
 
   const baseUrl = getArg("base-url", "https://esus.presidenteepitacio.sp.gov.br/");
-  const hostResolverIp = getArg("host-resolver-ip", "192.168.1.209");
+  const hostResolverIp = getArg("host-resolver-ip", "192.168.1.253");
   const domain = new URL(baseUrl).hostname;
   const browser = await chromium.launch({
     headless: true,

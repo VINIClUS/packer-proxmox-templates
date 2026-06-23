@@ -2,7 +2,7 @@
 
 ## Scope
 
-This report compares the current production PEC at `https://esus.presidenteepitacio.sp.gov.br` with the local restored installation at `https://192.168.1.209/`. The collection used the installation administrator credentials from `.env` (`user_esus_presidenteepitacio` and `password_esus_presidenteepitacio`) without writing credential values to disk or documentation.
+This report compares the current production PEC at `https://esus.presidenteepitacio.sp.gov.br` with the restored development installation now exposed as `https://esus.vinisantana.com/`. The development upstream remains `http://192.168.1.209:8080`; the production TLS upstream for `esus.presidenteepitacio.sp.gov.br` is `http://192.168.1.253:8080`. The collection used the installation administrator credentials from `.env` (`user_esus_presidenteepitacio` and `password_esus_presidenteepitacio`) without writing credential values to disk or documentation.
 
 Raw sanitized evidence was generated locally at `output/esus-pec-config-comparison/comparison-raw.json` and is intentionally not a tracked artifact because it contains operational UI data.
 
@@ -12,7 +12,7 @@ Raw sanitized evidence was generated locally at `output/esus-pec-config-comparis
 | --- | --- | --- |
 | PEC version | `5.4.37` | `5.4.37` |
 | Installation type | `PRONTUARIO` | `PRONTUARIO` |
-| HTTPS endpoint | `https://esus.presidenteepitacio.sp.gov.br` | `https://192.168.1.209/` |
+| HTTPS endpoint | `https://esus.presidenteepitacio.sp.gov.br` | `https://esus.vinisantana.com/` |
 | Authenticated pages collected | `15` | `15` |
 | GraphQL responses captured | `77` | `77` |
 
@@ -40,7 +40,7 @@ Correct active routes observed in PEC 5.4.37:
 | Security | Inactivity timeout | `60` minutes | `60` minutes | No action. Existing `ESUS_PEC_MAX_INACTIVITY_MINUTES` covers desired state. |
 | Security | Login attempts | `5` | `5` | No action. Existing `ESUS_PEC_MAX_LOGIN_ATTEMPTS` covers desired state. |
 | Servers | Installation name | `Centro de Saude` | `Centro de Saude` | No action. Covered by `ESUS_PEC_INSTALLATION_NAME`. |
-| Servers | Installation link | `https://esus.presidenteepitacio.sp.gov.br` | same | Keep for replacement cutover. Covered by `ESUS_PEC_INSTALLATION_URL` / `ESUS_PEC_EXTERNAL_BASE_URL`. |
+| Servers | Installation link | `https://esus.presidenteepitacio.sp.gov.br` | `https://esus.vinisantana.com` | Keep the production link only on the production instance. Development must use `ESUS_PEC_PUBLIC_BASE_URL=https://esus.vinisantana.com`; production TLS uses `ESUS_PEC_PRODUCTION_UPSTREAM_URL=http://192.168.1.253:8080`. |
 | Servers | SMTP configured | `false` | `false` | No action unless notifications are later required. |
 | Advanced | Concurrent requests | `16`, default enabled | same | No action. Existing concurrent-request variables cover this. |
 | Advanced | Citizen search by properties | `true` | `true` | No action. Existing variable covers this. |

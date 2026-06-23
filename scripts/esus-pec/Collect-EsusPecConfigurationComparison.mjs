@@ -294,7 +294,7 @@ const environments = [
   },
   {
     name: "local",
-    baseUrl: localInstall.ESUS_PEC_LXC_TEST_HTTPS_URL || "https://192.168.1.209",
+    baseUrl: localInstall.ESUS_PEC_LXC_TEST_HTTPS_URL || "https://esus.vinisantana.com",
     username: process.env.user_esus_presidenteepitacio || localRuntime.ESUS_PEC_ADMIN_USERNAME || localInstall.ESUS_PEC_INSTALLER_CPF,
     password: process.env.password_esus_presidenteepitacio || localRuntime.ESUS_PEC_ADMIN_PASSWORD || localInstall.ESUS_PEC_INITIAL_PASSWORD,
     routes,

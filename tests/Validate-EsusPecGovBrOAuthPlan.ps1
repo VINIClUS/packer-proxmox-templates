@@ -33,13 +33,13 @@ $requiredFragments = @(
   "ESUS_PEC_GOVBR_OAUTH_CLIENT_SECRET",
   "ESUS_PEC_GOVBR_OAUTH_ALLOWED_DOMAIN=esus.presidenteepitacio.sp.gov.br",
   "ESUS_PEC_GOVBR_OAUTH_REDIRECT_BASE_URL=https://esus.presidenteepitacio.sp.gov.br",
-  "ESUS_PEC_GOVBR_OAUTH_TEST_HOST_OVERRIDE=192.168.1.209 esus.presidenteepitacio.sp.gov.br",
+  "ESUS_PEC_GOVBR_OAUTH_TEST_HOST_OVERRIDE=192.168.1.253 esus.presidenteepitacio.sp.gov.br",
+  "ESUS_PEC_GOVBR_OAUTH_TEST_STRATEGY=production-domain-production-upstream",
   "ESUS_PEC_GOVBR_OAUTH_TLS_MODE=nginx-termination",
   "ESUS_PEC_GOVBR_OAUTH_NATIVE_TLS_FALLBACK=false",
   "ESUS_PEC_GOVBR_SSL_KEYSTORE_TYPE=PKCS12",
   "ESUS_PEC_GOVBR_DEBUG_MITM_REQUIRED=false",
   "mitmproxy",
-  "hosts-file-split-dns",
   "govBREnabled=true",
   "serverTimezoneOffset=0"
 )
@@ -56,7 +56,9 @@ $forbiddenPatterns = @(
   'ESUS_PEC_GOVBR_SSL_KEYSTORE_PASSWORD=[^\r\n]+',
   '-----BEGIN .*PRIVATE KEY-----',
   'JSESSIONID=',
-  'XSRF-TOKEN='
+  'XSRF-TOKEN=',
+  'esus\.presidenteepitacio\.sp\.gov\.br:443:192\.168\.1\.209',
+  '192\.168\.1\.209\s+esus\.presidenteepitacio\.sp\.gov\.br'
 )
 
 foreach ($pattern in $forbiddenPatterns) {

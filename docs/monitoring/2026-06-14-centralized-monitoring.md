@@ -509,7 +509,10 @@ Nginx consolidation evidence collected on 2026-06-21:
   `prometheus-nginx-exporter` active on `192.168.1.139:9113`.
 - CT `110` received Certbot and the managed PEC vhost
   `/etc/nginx/sites-available/esus-pec-tls.conf`, proxying to
-  `http://192.168.1.209:8080`.
+  the selected PEC upstream. For production
+  `esus.presidenteepitacio.sp.gov.br`, the upstream is
+  `http://192.168.1.253:8080`; `http://192.168.1.209:8080` is the
+  development upstream for `esus.vinisantana.com`.
 - CT `133` still had `nginx` and `prometheus-nginx-exporter` active from the
   previous local TLS path. They were not disabled because trusted CT `110`
   issuance is blocked by public HTTP-01 reachability.

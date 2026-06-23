@@ -310,7 +310,7 @@ const args = parseArgs(process.argv.slice(2));
 const runtimeSecrets = await getInfisicalSecrets("/test");
 const installSecrets = await getInstallationConfigSecrets();
 
-const baseUrl = args.baseUrl || installSecrets.ESUS_PEC_LXC_TEST_HTTPS_URL || "https://192.168.1.209/";
+const baseUrl = args.baseUrl || installSecrets.ESUS_PEC_LXC_TEST_HTTPS_URL || "https://esus.vinisantana.com/";
 const username = args.username || process.env.user_esus_presidenteepitacio || runtimeSecrets.ESUS_PEC_ADMIN_USERNAME || installSecrets.ESUS_PEC_INSTALLER_CPF;
 const password = args.password || process.env.password_esus_presidenteepitacio || runtimeSecrets.ESUS_PEC_ADMIN_PASSWORD || installSecrets.ESUS_PEC_INITIAL_PASSWORD;
 const municipalityId = args.municipalityId || installSecrets.ESUS_PEC_MUNICIPALITY_ID || "9946";

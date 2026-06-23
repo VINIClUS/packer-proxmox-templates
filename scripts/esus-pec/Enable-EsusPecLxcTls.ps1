@@ -33,6 +33,7 @@ $resolvedProductionUpstreamUrl = Resolve-InfisicalSetting -Name "ESUS_PEC_PRODUC
 if (-not [uri]::IsWellFormedUriString($resolvedProductionUpstreamUrl, [System.UriKind]::Absolute)) {
   throw "Invalid ESUS_PEC_PRODUCTION_UPSTREAM_URL '$resolvedProductionUpstreamUrl'. Provide an absolute URL."
 }
+$resolvedProductionUpstreamUrl = $resolvedProductionUpstreamUrl.TrimEnd("/")
 $resolvedPecIp = if (-not [string]::IsNullOrWhiteSpace($PecIp)) { $PecIp } else { ([uri]$resolvedProductionUpstreamUrl).Host }
 $resolvedDomain = Resolve-InfisicalSetting -Name "ESUS_PEC_PRODUCTION_DOMAIN" -CurrentValue $Domain -EnvFilePath $envFile
 $resolvedPublicIp = Resolve-InfisicalSetting -Name "PUBLIC_IP" -CurrentValue $PublicIp -EnvFilePath $envFile
@@ -212,6 +213,7 @@ if (-not $sshHost -or -not $sshKey) {
 $target = "$sshUser@$sshHost"
 $domainB64 = Convert-ToBase64 -Value $resolvedDomain
 $pecIpB64 = Convert-ToBase64 -Value $resolvedPecIp
+$productionUpstreamUrlB64 = Convert-ToBase64 -Value $resolvedProductionUpstreamUrl
 $proxyIpB64 = Convert-ToBase64 -Value $resolvedProxyIp
 $proxyExpectedHostnameB64 = Convert-ToBase64 -Value $resolvedProxyExpectedHostname
 $publicIpB64 = Convert-ToBase64 -Value $resolvedPublicIp
@@ -227,6 +229,7 @@ exec 2>&1
 
 DOMAIN="`$(printf '%s' '$domainB64' | base64 -d)"
 PEC_IP="`$(printf '%s' '$pecIpB64' | base64 -d)"
+PEC_UPSTREAM_URL="`$(printf '%s' '$productionUpstreamUrlB64' | base64 -d)"
 PROXY_IP="`$(printf '%s' '$proxyIpB64' | base64 -d)"
 PROXY_EXPECTED_HOSTNAME="`$(printf '%s' '$proxyExpectedHostnameB64' | base64 -d)"
 PUBLIC_IP="`$(printf '%s' '$publicIpB64' | base64 -d)"
@@ -305,7 +308,7 @@ server {
     client_max_body_size 100m;
 
     location / {
-        proxy_pass http://__PEC_UPSTREAM__:8080;
+        proxy_pass __PEC_UPSTREAM_URL__;
         proxy_http_version 1.1;
         proxy_set_header Host `$host;
         proxy_set_header X-Real-IP `$remote_addr;
@@ -323,7 +326,7 @@ NGINX
     -e "s#__WEBROOT__#`$WEBROOT#g" \
     -e "s#__CERT_PATH__#`$cert_path#g" \
     -e "s#__KEY_PATH__#`$key_path#g" \
-    -e "s#__PEC_UPSTREAM__#`$PEC_IP#g" \
+    -e "s#__PEC_UPSTREAM_URL__#`$PEC_UPSTREAM_URL#g" \
     "`$NGINX_SITE"
 }
 
@@ -342,7 +345,7 @@ systemctl reload nginx
 challenge_name="codex-preflight-`$(date +%s)"
 printf 'ok\n' > "`$WEBROOT/.well-known/acme-challenge/`$challenge_name"
 curl -fsS --max-time 10 --resolve "`$DOMAIN:80:127.0.0.1" "http://`$DOMAIN/.well-known/acme-challenge/`$challenge_name" >/dev/null
-pec_upstream_status="`$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "http://`$PEC_IP:8080/" || true)"
+pec_upstream_status="`$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "`$PEC_UPSTREAM_URL/" || true)"
 if [ "`$pec_upstream_status" != "200" ]; then
   echo "PEC_UPSTREAM_HTTP_STATUS=`$pec_upstream_status"
   exit 1
@@ -423,6 +426,7 @@ printf 'PUBLIC_IP=%s\n' "`$PUBLIC_IP"
 printf 'PROXY_IP=%s\n' "`$PROXY_IP"
 printf 'PROXY_HOSTNAME=%s\n' "`$actual_hostname"
 printf 'PEC_IP=%s\n' "`$PEC_IP"
+printf 'PEC_UPSTREAM_URL=%s\n' "`$PEC_UPSTREAM_URL"
 printf 'HTTPS_URL=https://%s/\n' "`$DOMAIN"
 printf 'CERT_SHA256=%s\n' "`$fingerprint"
 printf 'CERT_NOT_AFTER=%s\n' "`$not_after"
@@ -495,7 +499,7 @@ if (-not $SkipInfisical) {
     ESUS_PEC_TLS_PROXY_LXC_IP = $resolvedProxyIp
     ESUS_PEC_TLS_PROXY_LXC_NAME = $resolvedProxyExpectedHostname
     ESUS_PEC_TLS_UPSTREAM_LXC_IP = $resolvedPecIp
-    ESUS_PEC_TLS_UPSTREAM_URL = "http://$resolvedPecIp:8080/"
+    ESUS_PEC_TLS_UPSTREAM_URL = $resolvedProductionUpstreamUrl
     ESUS_PEC_TLS_LETSENCRYPT_EMAIL = $LetsEncryptEmail
     ESUS_PEC_TLS_CERTBOT_VERSION = [string]$metadata["CERTBOT_VERSION"]
     ESUS_PEC_TLS_CERTBOT_TIMER_PRESENT = [string]$metadata["CERTBOT_TIMER_PRESENT"]
@@ -520,6 +524,7 @@ if (-not $SkipInfisical) {
   domain = $resolvedDomain
   publicIp = $resolvedPublicIp
   pecIp = $resolvedPecIp
+  pecUpstreamUrl = $resolvedProductionUpstreamUrl
   httpsUrl = "https://$resolvedDomain/"
   nginxActive = [string]$metadata["NGINX_ACTIVE"]
   pecUpstreamHttpStatus = [string]$metadata["PEC_UPSTREAM_HTTP_STATUS"]

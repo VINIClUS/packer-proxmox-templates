@@ -36,12 +36,12 @@ Implemented on 2026-06-21 with `scripts/esus-pec/Configure-EsusPecGovBrOAuth.ps1
 Validated evidence:
 
 ```text
-curl -kI --resolve esus.presidenteepitacio.sp.gov.br:443:192.168.1.209 https://esus.presidenteepitacio.sp.gov.br/ -> HTTP 200
+curl -kI --resolve esus.presidenteepitacio.sp.gov.br:443:192.168.1.253 https://esus.presidenteepitacio.sp.gov.br/ -> HTTP 200
 e-SUS-PEC.service -> active
 nginx -> active
 TIMEZONE -> America/Sao_Paulo
 APP_PROPERTIES_SHA256 -> ddfdf0f9383e720ca970bb1a1114245a5e50361dd548eb7063619a8755f67532
-node scripts/esus-pec/Validate-EsusPecGovBrOAuth.mjs --base-url=https://esus.presidenteepitacio.sp.gov.br/ --host-resolver-ip=192.168.1.209 -> govBREnabled=true
+node scripts/esus-pec/Validate-EsusPecGovBrOAuth.mjs --base-url=https://esus.presidenteepitacio.sp.gov.br/ --host-resolver-ip=192.168.1.253 -> govBREnabled=true
 ```
 
 The validation script requires Playwright in the local Node environment. For an ephemeral validation run, use `npm install --no-save playwright` and do not commit `node_modules/`.
@@ -72,8 +72,8 @@ Store these in Infisical `/test/InstallationConfig` first. Mirror to `/prod/Inst
 | `ESUS_PEC_GOVBR_OAUTH_CLIENT_SECRET` | Yes | Gov.br client secret from the production reference. |
 | `ESUS_PEC_GOVBR_OAUTH_ALLOWED_DOMAIN` | No | `esus.presidenteepitacio.sp.gov.br`. |
 | `ESUS_PEC_GOVBR_OAUTH_REDIRECT_BASE_URL` | No | `https://esus.presidenteepitacio.sp.gov.br`. |
-| `ESUS_PEC_GOVBR_OAUTH_TEST_HOST_OVERRIDE` | No | Temporary hosts entry: `192.168.1.209 esus.presidenteepitacio.sp.gov.br`. |
-| `ESUS_PEC_GOVBR_OAUTH_TEST_STRATEGY` | No | `hosts-file-split-dns`. |
+| `ESUS_PEC_GOVBR_OAUTH_TEST_HOST_OVERRIDE` | No | Production hosts entry: `192.168.1.253 esus.presidenteepitacio.sp.gov.br`. |
+| `ESUS_PEC_GOVBR_OAUTH_TEST_STRATEGY` | No | `production-domain-production-upstream`. |
 | `ESUS_PEC_GOVBR_OAUTH_SOURCE_FILE_SHA256` | No | Source file hash for provenance. |
 | `ESUS_PEC_GOVBR_OAUTH_APP_PROPERTIES_PATH` | No | `/opt/e-SUS/webserver/config/application.properties`. |
 | `ESUS_PEC_GOVBR_OAUTH_TLS_MODE` | No | `nginx-termination`. |
@@ -96,9 +96,9 @@ Store these in Infisical `/test/InstallationConfig` first. Mirror to `/prod/Inst
 5. Restart only `e-SUS-PEC.service` after backing up properties and recording rollback commands.
 6. Validate GraphQL `/api/graphql` `info.govBREnabled` changes from `false` to `true` with `scripts/esus-pec/Validate-EsusPecGovBrOAuth.mjs`.
 7. Test Gov.br login using hosts/split-DNS from a controlled test workstation:
-   - add `192.168.1.209 esus.presidenteepitacio.sp.gov.br` locally;
-   - open `https://esus.presidenteepitacio.sp.gov.br`;
-   - confirm the browser reaches CT `133`, not production;
+  - add `192.168.1.253 esus.presidenteepitacio.sp.gov.br` locally only if DNS is not already pointing to production;
+  - open `https://esus.presidenteepitacio.sp.gov.br`;
+  - confirm the browser reaches production at `192.168.1.253`, not CT `133`;
    - start login and verify redirect uses the registered domain, not the IP.
 8. If login fails, inspect PEC logs and nginx logs first. Only install MITM tooling if the failure cannot be diagnosed from logs, redirect URL, HTTP status, and Gov.br error page.
 

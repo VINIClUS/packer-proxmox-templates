@@ -6,6 +6,7 @@ $paths = @(
   "scripts/esus-pec/Enable-EsusPecLxcTls.ps1",
   "scripts/esus-pec/Set-EsusPecTlsProxyInfisicalMetadata.ps1",
   "docs/esus-pec/2026-06-05-lxc-tls.md",
+  "docs/esus-pec/2026-06-23-production-tls-preflight.md",
   "docs/credentials/esus-pec-infisical-secrets.html",
   "config/esus-pec.infisical.env.example"
 )
@@ -52,12 +53,18 @@ $requiredFragments = @(
   "ESUS_PEC_TLS_PROXY_LXC_NAME",
   "ESUS_PEC_TLS_UPSTREAM_LXC_IP",
   "ESUS_PEC_TLS_UPSTREAM_URL",
+  "ESUS_PEC_PRODUCTION_UPSTREAM_URL=http://192.168.1.253:8080",
+  "PEC_UPSTREAM_URL",
+  "Production TLS Preflight",
+  "Invalid API Token",
+  "prod_upstream_status",
   "nginx-edge-lxc-certbot",
   'CT `110`',
+  'production PEC vhost for `esus.presidenteepitacio.sp.gov.br` must proxy to `http://192.168.1.253:8080`',
   "ACME_PUBLIC_HTTP_STATUS=000",
   "/test/InstallationConfig",
   "No PEM values are stored in Git or documentation",
-  "pct exec 133 -- systemctl disable --now nginx prometheus-nginx-exporter"
+  "pct exec 110 -- rm -f /etc/nginx/sites-enabled/esus-pec-tls.conf"
 )
 
 foreach ($fragment in $requiredFragments) {
@@ -70,7 +77,9 @@ $forbiddenPatterns = @(
   '-----BEGIN CERTIFICATE-----',
   '-----BEGIN .*PRIVATE KEY-----',
   'ESUS_PEC_TLS_PRIVATE_KEY_PEM=[^\r\n]+',
-  'ESUS_PEC_TLS_CERTIFICATE_PEM=[^\r\n]+'
+  'ESUS_PEC_TLS_CERTIFICATE_PEM=[^\r\n]+',
+  'esus\.presidenteepitacio\.sp\.gov\.br:443:192\.168\.1\.209',
+  '192\.168\.1\.209\s+esus\.presidenteepitacio\.sp\.gov\.br'
 )
 
 foreach ($pattern in $forbiddenPatterns) {
