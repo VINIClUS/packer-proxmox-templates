@@ -19,6 +19,8 @@
    Do instead: prefix repository commands with `rtk`, including git and validation commands.
 
 ## Domain Behavior Guardrails
+1. **[2026-06-23] Protect e-SUS PEC production**
+   Do instead: treat `192.168.1.253` / `esus.presidenteepitacio.sp.gov.br` as the functional production server and do not alter the machine, services, DNS/proxy references, TLS upstream, or Infisical variables without explicit operator authorization.
 1. **[2026-06-09] Windows Proxmox Cloud-Init needs Cloudbase-Init before Sysprep**
    Do instead: install/configure Cloudbase-Init for ConfigDrive in the Windows template and run Sysprep with Cloudbase `Unattend.xml`; Proxmox `ciuser`/`cipassword` are not applied by QEMU Guest Agent or OpenSSH alone.
 1. **[2026-05-27] e-SUS PEC LXC needs `RemoveIPC=no`**

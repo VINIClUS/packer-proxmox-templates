@@ -25,6 +25,8 @@ Let's Encrypt remains scoped to esus.presidenteepitacio.sp.gov.br.
 | `prometheus.vinisantana.com` | `http://192.168.1.190:9090` | Protected by `EDGE_PROXY_PROMETHEUS_BASIC_AUTH_HTPASSWD`. |
 | `esus.presidenteepitacio.sp.gov.br` | `https://192.168.1.253` | Production PEC; keep Certbot/Let's Encrypt on CT110. |
 
+`192.168.1.253` is the functional and accessible production PEC server. Do not alter the host, services, edge proxy reference, DNS mapping, TLS upstream, or related Infisical variables without explicit operator authorization for the specific production change.
+
 ## Variables
 
 Store route metadata in Infisical `/test/EdgeProxy`:

@@ -36,6 +36,10 @@ Git history is minimal, so use concise imperative commit subjects, for example `
 
 Track example variable files only, such as `config/Proxmox.pkrvars.hcl.example`. Keep templates immutable: rebuild images instead of manually patching existing Proxmox templates. Ensure Windows images run Sysprep and Linux images clear machine identity, SSH host keys, logs, and shell history before sealing.
 
+## Production Environment Guardrails
+
+The host `192.168.1.253` is the functional and accessible e-SUS PEC production server behind `esus.presidenteepitacio.sp.gov.br`. Do not modify this machine, its services, TLS upstream mapping, DNS/proxy references, or related Infisical variables without explicit operator authorization for that specific action. Treat routine work against production as read-only unless the user clearly approves a change.
+
 
 <!-- headroom:rtk-instructions -->
 # RTK (Rust Token Killer) - Token-Optimized Commands

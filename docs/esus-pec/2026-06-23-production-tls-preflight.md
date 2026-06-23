@@ -16,6 +16,10 @@ This preflight prepares the production TLS issuance for `esus.presidenteepitacio
 | Public IP | `177.190.79.26` |
 | ACME contact | `cpd.saude@presidenteepitacio.sp.gov.br` |
 
+## Production Protection
+
+`192.168.1.253` hosts the functional and accessible e-SUS PEC production server for `esus.presidenteepitacio.sp.gov.br`. Do not modify that machine, its services, CT/VM state, edge proxy references, TLS upstream, or related Infisical variables without explicit operator authorization for the specific change. Default production interactions are read-only validation.
+
 ## Read-Only Validation
 
 Cloudflare token validation was attempted with `GET /user/tokens/verify`, `GET /zones?name=vinisantana.com`, and `GET /dns_records`. The local `CLOUDFLARE_TOKEN` variable is present, but Cloudflare returned HTTP `401` / `Invalid API Token`; `CLOUDFLARE_API_TOKEN` is not defined. No Cloudflare changes were made.

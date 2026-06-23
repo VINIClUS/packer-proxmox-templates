@@ -86,6 +86,7 @@ $requiredFragments = @(
   "PROXMOX_PUBLIC_URL=https://proxmox.vinisantana.com",
   "Cloudflare handles TLS for vinisantana.com",
   "Let's Encrypt remains scoped to esus.presidenteepitacio.sp.gov.br",
+  "Do not alter the host, services, edge proxy reference, DNS mapping, TLS upstream, or related Infisical variables without explicit operator authorization",
   "WAL-G remains on the internal MinIO endpoint",
   "nginx -t",
   'ROUTE_`${id}_STATUS',
