@@ -27,11 +27,21 @@ certificados privados ou dados sensiveis.
 | `docs/_templates/` | Modelos oficiais para novas documentacoes operacionais. |
 | `docs/build-reports/` | Relatorios datados de builds e validacoes de templates. |
 | `docs/credentials/` | Inventarios HTML de variaveis e credenciais sem valores reais. |
-| `docs/esus-pec/` | Runbooks, planos, inventarios e evidencias do e-SUS PEC. |
-| `docs/monitoring/` | Documentacao da stack de monitoramento. |
-| `docs/setup-readonly/` | Inventarios e planos de leitura/analise sem alteracao. |
 | `docs/siha-nas/` | Operacao do NAS SIHA, Samba, backup, restore e Windows. |
 | `docs/superpowers/` | Planos e especificacoes auxiliares de implementacao. |
+
+## Documentacao migrada
+
+A documentacao operacional do e-SUS PEC, incluindo monitoramento PEC,
+setup-readonly, scripts de bootstrap, testes e inventarios Infisical do PEC,
+foi migrada para:
+
+- caminho local: `..\esus-pec-bootstrap`
+- remoto: `https://github.com/VINIClUS/esus-pec-bootstrap.git`
+
+Novos runbooks desse dominio devem ser criados no repositorio dedicado. Este
+repositorio deve manter apenas documentacao relacionada a templates
+Proxmox/Packer e rotinas ainda residentes aqui, como `docs/siha-nas/`.
 
 ## Checklist para nova rotina
 

@@ -9,6 +9,15 @@ This repository builds reproducible Proxmox VE golden images with HashiCorp Pack
 - `windows/<version>/`: Windows Packer templates, `http/` unattended files, and `scripts/` provisioning steps.
 - `linux/<distro>/`: Linux Packer templates, `http/` preseed/kickstart files, and `scripts/` hardening and cleanup.
 
+## Repository Boundary
+
+The e-SUS PEC bootstrap and operations domain is no longer maintained in this
+repository. Use `..\esus-pec-bootstrap` locally and
+`https://github.com/VINIClUS/esus-pec-bootstrap.git` remotely for PEC scripts,
+tests, documentation, monitoring, WAL-G/MinIO, and `INFISICAL_*` variables.
+Do not add new PEC operational artifacts back to this Packer/template
+repository unless the user explicitly requests a cross-repository migration.
+
 ## Build, Test, and Development Commands
 
 Prefix shell commands with `rtk` when working in this repository.
@@ -65,7 +74,7 @@ Track example variable files only, such as `config/Proxmox.pkrvars.hcl.example`.
 
 ## Production Environment Guardrails
 
-The host `192.168.1.253` is the functional and accessible e-SUS PEC production server behind `esus.presidenteepitacio.sp.gov.br`. Do not modify this machine, its services, TLS upstream mapping, DNS/proxy references, or related Infisical variables without explicit operator authorization for that specific action. Treat routine work against production as read-only unless the user clearly approves a change.
+The host `192.168.1.253` is the functional and accessible e-SUS PEC production server behind `esus.presidenteepitacio.sp.gov.br`. Do not modify this machine, its services, TLS upstream mapping, DNS/proxy references, or related Infisical variables without explicit operator authorization for that specific action. Treat routine work against production as read-only unless the user clearly approves a change. Authorized PEC operational changes belong in `..\esus-pec-bootstrap`, not in this repository.
 
 
 <!-- headroom:rtk-instructions -->

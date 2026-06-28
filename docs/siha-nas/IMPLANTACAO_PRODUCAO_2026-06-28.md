@@ -153,7 +153,7 @@ projeto ESUS PEC. O script usa `TEMPLATE_INFISICAL_*` como namespace de
 configuracao e aceita `TEMPLATES_INFISICAL_*` como alias local de
 compatibilidade. Nao usar `INFISICAL_*` para esta rotina. As chaves usam o
 prefixo `SIHA_NAS_*` para nao se misturarem com as chaves MinIO/WAL-G. O
-arquivo rastreado `config/esus-pec.infisical.env.example` lista as chaves sem
+arquivo rastreado `config/siha-nas.infisical.env.example` lista as chaves sem
 valores sensiveis. A sincronizacao deve ser feita pelo script:
 
 ```powershell

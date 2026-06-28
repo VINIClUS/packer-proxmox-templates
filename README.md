@@ -9,6 +9,21 @@ auditaveis, imutaveis e repetiveis. Alteracoes em scripts, backups, restores,
 jobs, agendamentos ou variaveis operacionais devem sair acompanhadas da
 documentacao correspondente no mesmo commit.
 
+## Limite de responsabilidade
+
+Este repositorio permanece como fonte de verdade para templates Proxmox/Packer
+e para rotinas diretamente ligadas a esses templates.
+
+As automacoes, runbooks, variaveis e testes do e-SUS PEC foram separados para
+o repositorio dedicado:
+
+- caminho local: `..\esus-pec-bootstrap`
+- remoto: `https://github.com/VINIClUS/esus-pec-bootstrap.git`
+
+Nao recrie scripts ou documentacao do e-SUS PEC neste repositorio. Quando a
+atividade tocar PEC, monitoramento PEC, WAL-G/MinIO do PEC ou variaveis
+`INFISICAL_*` desse dominio, trabalhe no repositorio dedicado.
+
 ## Estrutura
 
 ```text
@@ -59,4 +74,5 @@ de validacao. Nunca registre senhas, tokens, chaves privadas ou dados sensiveis.
 - Declare variaveis em arquivos `.pkr.hcl` e documente exemplos rastreados.
 - Atualize `.example` e documentacao quando um segredo ou variavel mudar.
 - O host `192.168.1.253` / `esus.presidenteepitacio.sp.gov.br` e producao
-  e deve ser tratado como leitura por padrao, salvo autorizacao explicita.
+  do e-SUS PEC; trate como leitura por padrao e use `..\esus-pec-bootstrap`
+  para qualquer trabalho operacional autorizado nesse dominio.

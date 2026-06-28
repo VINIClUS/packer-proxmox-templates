@@ -82,7 +82,7 @@ para este conjunto no projeto de templates. O script deve
 resolver a conexao por `TEMPLATE_INFISICAL_*`, aceitando
 `TEMPLATES_INFISICAL_*` como alias local de compatibilidade. Nao usar
 `INFISICAL_*`, pois esse namespace aponta para o projeto ESUS PEC. O arquivo
-`config/esus-pec.infisical.env.example` deve conter apenas nomes e valores nao
+`config/siha-nas.infisical.env.example` deve conter apenas nomes e valores nao
 sensiveis. A senha Samba deve ser sincronizada a partir de `.env` ou
 `../sus-siha-bootstrap/.env`, sem ser impressa.
 
