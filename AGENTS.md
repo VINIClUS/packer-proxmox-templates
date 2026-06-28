@@ -28,6 +28,33 @@ Use Packer HCL2 only; do not add legacy JSON templates. Name Packer files with `
 
 There is no standalone test framework yet. Treat `packer validate` as the minimum required check for every template change. For script changes, run the relevant script in a disposable VM or template build path and document the validation performed in the PR.
 
+## Operational Documentation Standard
+
+Any change to provisioning scripts, backup or restore procedures, scheduled jobs, timers, administrative routines, infrastructure runbooks, or secret-backed operational variables must update the matching documentation in the same commit. Do not merge operational behavior without the runbook that lets another operator execute, validate, roll back, and audit it later.
+
+Use the repository-local skill `.agents/skills/documentar-operacao/SKILL.md` as the default checklist for operational work. Before editing operational scripts, inspect the nearest runbook under `docs/` and the templates in `docs/_templates/`; before finishing, verify that the changed script/config, matching documentation, tracked examples, and validation evidence can be committed as one atomic operational slice.
+
+Use Brazilian Portuguese for operational docs unless the surrounding document is already in English. Keep the tone procedural and evidence-oriented: state the objective, scope, target environment, exact commands, expected results, validation evidence, rollback, risks, and remaining manual checks. Prefer absolute dates, CTIDs/VMIDs, hostnames, IPs, paths, storage names, service names, and log locations over vague descriptions.
+
+Required sections for new or materially changed operational docs:
+
+- Objetivo/Escopo.
+- Topologia, campos de implantacao, or variaveis operacionais.
+- Pre-requisitos and safety checks, including dry-run when the script supports it.
+- Execucao with exact commands and placeholders clearly marked.
+- Validacao with concrete expected outputs or pass/fail criteria.
+- Backup/restauracao impact and a real restore-test requirement when data durability is involved.
+- Rollback or stop procedure that preserves data by default.
+- Seguranca, secrets, firewall/exposure, and least-privilege notes.
+- Evidencias, logs, report paths, and acceptance checklist.
+- Pendencias manuais and explicit items that are not production-ready yet.
+
+For Infisical or other secret-backed configuration, update tracked example files and documentation with variable names and logical paths, but never commit real values. Sync scripts must report only metadata such as key name, path, action, and value presence. Any password, token, private key, credential file, or health/faturamento data must stay out of chat, logs, docs, and git history.
+
+Infisical namespaces are not interchangeable. In this workspace, `INFISICAL_*` targets the ESUS PEC project, `TEMPLATE_INFISICAL_*` or the local compatibility alias `TEMPLATES_INFISICAL_*` targets template projects, and `SIHA_INFISICAL_*` targets SIHA projects. Scripts must make the intended namespace explicit and must not silently fall back to `INFISICAL_*` for template or SIHA operations.
+
+Keep commits atomic for operational work. A commit should contain one coherent operational slice: script/config change, matching docs, tracked examples, and validation updates. Do not mix unrelated infrastructure changes, generated reports, or cleanup into the same commit.
+
 ## Commit & Pull Request Guidelines
 
 Git history is minimal, so use concise imperative commit subjects, for example `Add Debian 12 Packer template`. Pull requests should describe the target OS, Proxmox assumptions, validation commands run, and any required local variables. Never include credentials, API tokens, generated ISOs, or real `config/*.pkrvars.hcl` files.
