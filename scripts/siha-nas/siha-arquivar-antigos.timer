@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly SIHA NAS archival dry-run/report timer
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+RandomizedDelaySec=2h
+
+[Install]
+WantedBy=timers.target
