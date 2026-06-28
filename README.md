@@ -24,6 +24,15 @@ Nao recrie scripts ou documentacao do e-SUS PEC neste repositorio. Quando a
 atividade tocar PEC, monitoramento PEC, WAL-G/MinIO do PEC ou variaveis
 `INFISICAL_*` desse dominio, trabalhe no repositorio dedicado.
 
+As automacoes, runbooks, variaveis e testes do SIHA NAS e dos sistemas DATASUS
+do SIHA foram separados para:
+
+- caminho local: `..\sus-siha-bootstrap`
+
+Nao recrie scripts ou documentacao do SIHA NAS neste repositorio. Quando a
+atividade tocar Samba do SIHA, unidade `S:`, CT `siha-nas`, variaveis
+`SIHA_INFISICAL_*` ou chaves `SIHA_NAS_*`, trabalhe no repositorio dedicado.
+
 ## Estrutura
 
 ```text

@@ -18,6 +18,12 @@ tests, documentation, monitoring, WAL-G/MinIO, and `INFISICAL_*` variables.
 Do not add new PEC operational artifacts back to this Packer/template
 repository unless the user explicitly requests a cross-repository migration.
 
+The SIHA NAS and SIHA/DATASUS bootstrap domain is also no longer maintained in
+this repository. Use `..\sus-siha-bootstrap` for SIHA NAS scripts, tests,
+documentation, Samba/SMB operations, Windows `S:` mapping, and
+`SIHA_INFISICAL_*` / `SIHA_NAS_*` variables. Do not add new SIHA operational
+artifacts back to this Packer/template repository unless explicitly requested.
+
 ## Build, Test, and Development Commands
 
 Prefix shell commands with `rtk` when working in this repository.

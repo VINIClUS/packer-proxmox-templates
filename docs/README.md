@@ -27,7 +27,6 @@ certificados privados ou dados sensiveis.
 | `docs/_templates/` | Modelos oficiais para novas documentacoes operacionais. |
 | `docs/build-reports/` | Relatorios datados de builds e validacoes de templates. |
 | `docs/credentials/` | Inventarios HTML de variaveis e credenciais sem valores reais. |
-| `docs/siha-nas/` | Operacao do NAS SIHA, Samba, backup, restore e Windows. |
 | `docs/superpowers/` | Planos e especificacoes auxiliares de implementacao. |
 
 ## Documentacao migrada
@@ -39,9 +38,15 @@ foi migrada para:
 - caminho local: `..\esus-pec-bootstrap`
 - remoto: `https://github.com/VINIClUS/esus-pec-bootstrap.git`
 
-Novos runbooks desse dominio devem ser criados no repositorio dedicado. Este
-repositorio deve manter apenas documentacao relacionada a templates
-Proxmox/Packer e rotinas ainda residentes aqui, como `docs/siha-nas/`.
+A documentacao operacional do SIHA NAS, incluindo CT `siha-nas`, Samba,
+unidade `S:`, backup/restore, testes e inventario `SIHA_NAS_*`, foi migrada
+para:
+
+- caminho local: `..\sus-siha-bootstrap`
+
+Novos runbooks desses dominios devem ser criados nos repositorios dedicados.
+Este repositorio deve manter apenas documentacao relacionada a templates
+Proxmox/Packer e rotinas ainda residentes aqui.
 
 ## Checklist para nova rotina
 

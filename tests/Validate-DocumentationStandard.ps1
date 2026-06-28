@@ -63,7 +63,7 @@ Assert-Content ".agents/skills/documentar-operacao/SKILL.md" @(
 Assert-Content "docs/README.md" @(
   "Padrao obrigatorio",
   "docs/_templates/",
-  "docs/siha-nas/",
+  "..\sus-siha-bootstrap",
   "tests\Validate-DocumentationStandard.ps1",
   "Nunca registre valores reais"
 )
