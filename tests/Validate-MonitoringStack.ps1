@@ -1,0 +1,861 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$root = Resolve-Path (Join-Path $PSScriptRoot "..")
+
+$requiredArtifacts = @(
+  "scripts/monitoring/Provision-MonitoringCore.ps1",
+  "scripts/monitoring/Install-MonitoringTargetAgent.ps1",
+  "scripts/monitoring/Configure-EsusPecApplicationExporters.ps1",
+  "scripts/monitoring/Install-InfisicalMonitoringExporters.ps1",
+  "scripts/monitoring/templates/prometheus.yml",
+  "scripts/monitoring/templates/loki.yml",
+  "scripts/monitoring/templates/blackbox.yml",
+  "scripts/monitoring/templates/alloy-core.alloy",
+  "scripts/monitoring/templates/alloy-linux-target.alloy",
+  "scripts/monitoring/templates/grafana-datasources.yml",
+  "scripts/monitoring/templates/postgres-exporter-9.6.sql",
+  "scripts/monitoring/templates/jmx-exporter.yml",
+  "scripts/monitoring/Publish-GrafanaDashboards.ps1",
+  "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1",
+  "config/esus-pec.infisical.env.example",
+  "scripts/monitoring/dashboards/esus-monitoring-overview.json",
+  "scripts/monitoring/dashboards/monitoring-core-ct190.json",
+  "scripts/monitoring/dashboards/esus-pec-ct133.json",
+  "scripts/monitoring/dashboards/platform-services-ct110-ct120-ct134.json",
+  "scripts/monitoring/dashboards/logs-diagnostics.json",
+  "docs/monitoring/2026-06-14-centralized-monitoring.md",
+  "docs/superpowers/specs/2026-06-14-esus-pec-centralized-monitoring-design.md"
+)
+
+function Get-ArtifactPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RelativePath
+  )
+
+  Join-Path $root $RelativePath
+}
+
+foreach ($artifact in $requiredArtifacts) {
+  if (-not (Test-Path -LiteralPath (Get-ArtifactPath $artifact) -PathType Leaf)) {
+    throw "Missing monitoring artifact: $artifact"
+  }
+}
+
+$artifacts = foreach ($artifact in $requiredArtifacts) {
+  [pscustomobject]@{
+    Path = $artifact
+    Content = Get-Content -LiteralPath (Get-ArtifactPath $artifact) -Raw
+  }
+}
+
+$artifactByPath = @{}
+foreach ($artifact in $artifacts) {
+  $artifactByPath[$artifact.Path] = $artifact
+}
+
+$applicationExporterProvisioner =
+  $artifactByPath["scripts/monitoring/Configure-EsusPecApplicationExporters.ps1"].Content
+$infisicalExporterProvisioner =
+  $artifactByPath["scripts/monitoring/Install-InfisicalMonitoringExporters.ps1"].Content
+$targetAgentProvisioner =
+  $artifactByPath["scripts/monitoring/Install-MonitoringTargetAgent.ps1"].Content
+$coreProvisioner =
+  $artifactByPath["scripts/monitoring/Provision-MonitoringCore.ps1"].Content
+
+$activeApplicationExporterProvisioner = (
+  $applicationExporterProvisioner -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' } |
+    ForEach-Object { $_ -replace '\s+#.*$', '' }
+) -join "`n"
+
+$activeTargetAgentProvisioner = (
+  $targetAgentProvisioner -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' } |
+    ForEach-Object { $_ -replace '\s+#.*$', '' }
+) -join "`n"
+
+$activeInfisicalExporterProvisioner = (
+  $infisicalExporterProvisioner -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' } |
+    ForEach-Object { $_ -replace '\s+#.*$', '' }
+) -join "`n"
+
+$pinnedApplicationExporterPatterns = @{
+  postgres_exporter_version = '(?im)^\s*\$postgresExporterVersion\s*=\s*["'']0\.19\.1["'']\s*$'
+  postgres_exporter_checksum = '(?im)^\s*\$postgresExporterSha256\s*=\s*["'']229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0["'']\s*$'
+  postgres_exporter_url = '(?im)^\s*\$postgresExporterUrl\s*=\s*["'']https://github\.com/prometheus-community/postgres_exporter/releases/download/v0\.19\.1/postgres_exporter-0\.19\.1\.linux-amd64\.tar\.gz["'']\s*$'
+  jmx_exporter_version = '(?im)^\s*\$jmxExporterVersion\s*=\s*["'']1\.6\.0["'']\s*$'
+  jmx_exporter_checksum = '(?im)^\s*\$jmxExporterSha256\s*=\s*["'']a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e["'']\s*$'
+  jmx_exporter_url = '(?im)^\s*\$jmxExporterUrl\s*=\s*["'']https://github\.com/prometheus/jmx_exporter/releases/download/v1\.6\.0/jmx_prometheus_javaagent-1\.6\.0\.jar["'']\s*$'
+}
+
+foreach ($pinnedArtifact in $pinnedApplicationExporterPatterns.GetEnumerator()) {
+  if ($activeApplicationExporterProvisioner -notmatch $pinnedArtifact.Value) {
+    throw "Missing pinned application exporter artifact relation: $($pinnedArtifact.Key)"
+  }
+}
+
+$downloadIntegrityPatterns = @{
+  postgres_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*__POSTGRES_EXPORTER_URL__(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$download"\s*$'
+  postgres_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*__POSTGRES_EXPORTER_SHA256__[^\r\n|]*"\$download"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
+  jmx_exporter_download = '(?im)^\s*curl\b(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*__JMX_EXPORTER_URL__(?:[^\r\n]*\\\s*\r?\n\s*)*[^\r\n]*-o\s+"\$jmx_tmp/jmx_prometheus_javaagent\.jar"\s*$'
+  jmx_exporter_checksum = '(?im)^\s*(?:echo|printf)\b[^\r\n|]*__JMX_EXPORTER_SHA256__[^\r\n|]*"\$jmx_tmp/jmx_prometheus_javaagent\.jar"[^\r\n|]*(?:\r?\n\s*)?\|\s*sha256sum\s+-c\b'
+}
+
+foreach ($downloadIntegrity in $downloadIntegrityPatterns.GetEnumerator()) {
+  if ($activeApplicationExporterProvisioner -notmatch $downloadIntegrity.Value) {
+    throw "Missing bound application exporter download integrity check: $($downloadIntegrity.Key)"
+  }
+}
+
+foreach ($term in @(
+  "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
+  "/test/Monitoring",
+  "prometheus_exporter",
+  "prometheus-postgres-exporter",
+  "127.0.0.1:5433",
+  "DATA_SOURCE_PASS_FILE",
+  "useradd --system --no-create-home --shell /usr/sbin/nologin",
+  "User=prometheus-postgres-exporter",
+  "Group=prometheus-postgres-exporter",
+  "root:prometheus-postgres-exporter",
+  "mktemp -d /tmp/postgres-exporter.XXXXXX",
+  'trap ''rm -rf "$work_dir"'' EXIT HUP INT TERM',
+  "TargetMetricsHost",
+  "hostname -I",
+  "ip -o -4 addr",
+  "MonitoringCoreHost",
+  "nft",
+  "tcp dport 9187",
+  "/usr/local/sbin/apply-pec-postgres-exporter-firewall",
+  "prometheus-postgres-exporter-firewall.service",
+  "Before=prometheus-postgres-exporter.service",
+  "__POSTGRES_EXPORTER_URL__",
+  "__POSTGRES_EXPORTER_SHA256__",
+  'Replace("__POSTGRES_EXPORTER_URL__", $postgresExporterUrl)',
+  'Replace("__POSTGRES_EXPORTER_SHA256__", $postgresExporterSha256)',
+  "mktemp -d /tmp/jmx-exporter.XXXXXX",
+  'trap ''rm -rf "$jmx_tmp" "$dropin_backup" "$wrapper_backup"'' EXIT HUP INT TERM',
+  "__JMX_EXPORTER_URL__",
+  "__JMX_EXPORTER_SHA256__",
+  'Replace("__JMX_EXPORTER_URL__", $jmxExporterUrl)',
+  'Replace("__JMX_EXPORTER_SHA256__", $jmxExporterSha256)',
+  "/etc/monitoring/jmx-exporter.yml",
+  "jmx=staged-awaiting-apply",
+  "jmx=ready",
+  "monitoring-jmx.conf",
+  "/opt/monitoring/run-esus-pec-with-jmx.sh",
+  "ExecStart=/opt/monitoring/run-esus-pec-with-jmx.sh",
+  "tcp dport 9404",
+  "e-SUS-PEC.service",
+  "/opt/e-SUS/jre/current/bin/java -version",
+  "grep -q '17\.'",
+  "^jvm_(memory|gc|threads)_"
+)) {
+  if ($activeApplicationExporterProvisioner -notmatch [regex]::Escape($term)) {
+    throw "Missing application exporter provisioner term: $term"
+  }
+}
+
+foreach ($pg96IncompatibleCollectorFlag in @(
+  "--no-collector.wal",
+  "--no-collector.replication",
+  "--no-collector.replication_slot",
+  "--no-collector.stat_progress_vacuum"
+)) {
+  if ($activeApplicationExporterProvisioner -notmatch [regex]::Escape($pg96IncompatibleCollectorFlag)) {
+    throw "PostgreSQL 9.6 exporter service must disable incompatible default collector: $pg96IncompatibleCollectorFlag"
+  }
+}
+
+$postgresExporterRestartIndex =
+  $activeApplicationExporterProvisioner.IndexOf("systemctl restart prometheus-postgres-exporter")
+$postgresExporterUnitIndex =
+  $activeApplicationExporterProvisioner.IndexOf("cat >/etc/systemd/system/prometheus-postgres-exporter.service")
+
+if ($postgresExporterRestartIndex -lt 0) {
+  throw "PostgreSQL exporter provisioner must restart prometheus-postgres-exporter after updating its systemd unit."
+}
+
+if ($postgresExporterRestartIndex -lt $postgresExporterUnitIndex) {
+  throw "PostgreSQL exporter provisioner must restart prometheus-postgres-exporter after writing its systemd unit."
+}
+
+foreach ($jmxFirewallTerm in @(
+  'iifname "lo" tcp dport 9404 accept',
+  'ip saddr "$monitoring_core_host" tcp dport 9404 accept',
+  'tcp dport 9404 reject'
+)) {
+  if ($activeApplicationExporterProvisioner -notmatch [regex]::Escape($jmxFirewallTerm)) {
+    throw "Missing JMX firewall rule term: $jmxFirewallTerm"
+  }
+}
+
+foreach ($requiredFunctionUse in @("wait_http_ready", "rollback_jmx")) {
+  $escapedFunctionName = [regex]::Escape($requiredFunctionUse)
+  $functionDeclarationPattern =
+    "(?im)^\s*(?:function\s+$escapedFunctionName\b|$escapedFunctionName\s*\(\))"
+
+  if ($activeApplicationExporterProvisioner -notmatch $functionDeclarationPattern) {
+    throw "Application exporter provisioner must declare function: $requiredFunctionUse"
+  }
+
+  $nonDeclarationLines = (
+    $activeApplicationExporterProvisioner -split "`r?`n" |
+      Where-Object { $_ -notmatch $functionDeclarationPattern }
+  ) -join "`n"
+
+  $functionCallPattern =
+    "(?im)^\s*(?![^\r\n]*=)(?![^\r\n]*\bfunction\b)(?![^\r\n]*\(\)\s*\{\s*$)(?:if\s+!?\s*|!\s*)?$escapedFunctionName(?:\s+[^\r\n]+)?\s*$"
+
+  if ($nonDeclarationLines -notmatch $functionCallPattern) {
+    throw "Application exporter provisioner must call function: $requiredFunctionUse"
+  }
+}
+
+$forbiddenApplicationExporterPatterns = @{
+  SUPERUSER = '(?i)(?<!NO)\bSUPERUSER\b'
+  "ALTER SYSTEM" = '(?i)\bALTER\s+SYSTEM\b'
+  "listen_addresses = '*'" = "(?i)\blisten_addresses\s*=\s*['""]\*['""]"
+  "standalone.sh mutation" = '(?im)\b(?:sed|perl|awk|tee|cat|install|cp|mv)\b[^\r\n]*(?:/opt/e-SUS/webserver/)?standalone\.sh\b'
+}
+
+foreach ($forbiddenTerm in $forbiddenApplicationExporterPatterns.GetEnumerator()) {
+  if ($activeApplicationExporterProvisioner -match $forbiddenTerm.Value) {
+    throw "Application exporter provisioner contains forbidden term: $($forbiddenTerm.Key)"
+  }
+}
+
+$postgresSql =
+  $artifactByPath["scripts/monitoring/templates/postgres-exporter-9.6.sql"].Content
+
+foreach ($term in @(
+  "CREATE SCHEMA IF NOT EXISTS postgres_exporter",
+  "SECURITY DEFINER",
+  "CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_activity()",
+  "CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_replication()",
+  "FROM postgres_exporter.get_pg_stat_activity() activity",
+  "'client backend'::text AS backend_type",
+  "SELECT * FROM postgres_exporter.get_pg_stat_replication()",
+  "REVOKE EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() FROM PUBLIC",
+  "REVOKE EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_replication() FROM PUBLIC",
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() TO prometheus_exporter",
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_replication() TO prometheus_exporter",
+  "GRANT SELECT ON postgres_exporter.pg_stat_activity",
+  "GRANT SELECT ON postgres_exporter.pg_stat_replication"
+)) {
+  if ($postgresSql -notmatch [regex]::Escape($term)) {
+    throw "Missing PostgreSQL 9.6 exporter SQL term: $term"
+  }
+}
+
+$postgresTransactionBeginIndex = $postgresSql.IndexOf("BEGIN;")
+$postgresTransactionCommitIndex = $postgresSql.IndexOf("COMMIT;")
+$postgresOnErrorStopIndex = $postgresSql.IndexOf("\set ON_ERROR_STOP on")
+$postgresFirstSecurityDefinerFunctionIndex =
+  $postgresSql.IndexOf("CREATE OR REPLACE FUNCTION postgres_exporter.get_pg_stat_activity()")
+
+if ($postgresTransactionBeginIndex -lt 0) {
+  throw "PostgreSQL exporter bootstrap must start an explicit transaction with BEGIN;."
+}
+
+if ($postgresTransactionCommitIndex -lt 0) {
+  throw "PostgreSQL exporter bootstrap must finish the explicit transaction with COMMIT;."
+}
+
+if ($postgresOnErrorStopIndex -lt 0) {
+  throw "PostgreSQL exporter bootstrap must enable ON_ERROR_STOP before transaction setup."
+}
+
+if ($postgresTransactionBeginIndex -lt $postgresOnErrorStopIndex) {
+  throw "PostgreSQL exporter transaction BEGIN; must appear after \set ON_ERROR_STOP on."
+}
+
+if ($postgresTransactionBeginIndex -gt $postgresFirstSecurityDefinerFunctionIndex) {
+  throw "PostgreSQL exporter transaction BEGIN; must appear before SECURITY DEFINER function creation."
+}
+
+foreach ($grantTerm in @(
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_activity() TO prometheus_exporter",
+  "GRANT EXECUTE ON FUNCTION postgres_exporter.get_pg_stat_replication() TO prometheus_exporter",
+  "GRANT SELECT ON postgres_exporter.pg_stat_activity TO prometheus_exporter",
+  "GRANT SELECT ON postgres_exporter.pg_stat_replication TO prometheus_exporter"
+)) {
+  $grantIndex = $postgresSql.IndexOf($grantTerm)
+  if ($postgresTransactionCommitIndex -lt $grantIndex) {
+    throw "PostgreSQL exporter transaction COMMIT; must appear after grant: $grantTerm"
+  }
+}
+
+if ($postgresSql -match '(?is)\bCREATE\s+EXTENSION\b.*?\bpg_stat_statements\b') {
+  throw "PostgreSQL exporter bootstrap must not enable pg_stat_statements implicitly."
+}
+
+$healthSummaryIndex =
+  $activeTargetAgentProvisioner.IndexOf('$health = Read-KeyValueOutput -Output $healthOutput')
+$applicationExporterDelegationIndex =
+  $activeTargetAgentProvisioner.IndexOf('$applicationExporterScript = Join-Path $PSScriptRoot "Configure-EsusPecApplicationExporters.ps1"')
+$serviceSummaryIndex =
+  $activeTargetAgentProvisioner.IndexOf('$serviceSummary = [ordered]@{')
+
+if ($healthSummaryIndex -lt 0) {
+  throw "Target agent must read base/Nginx health before building service summary."
+}
+
+if ($applicationExporterDelegationIndex -lt 0) {
+  throw "Target agent must delegate PostgreSQL/JMX exporter setup to Configure-EsusPecApplicationExporters.ps1."
+}
+
+if ($serviceSummaryIndex -lt 0) {
+  throw "Target agent must build a JSON service summary."
+}
+
+if ($applicationExporterDelegationIndex -lt $healthSummaryIndex -or
+    $applicationExporterDelegationIndex -gt $serviceSummaryIndex) {
+  throw "Target agent must delegate application exporters after base/Nginx health checks and before service summary construction."
+}
+
+foreach ($targetSummaryTerm in @(
+  '[string]$TargetMetricsHost = "192.168.1.209"',
+  'metricsHost = $TargetMetricsHost',
+  'postgres_exporter = if ($applicationExporterSummary) { $applicationExporterSummary.postgres_exporter } else { "skipped" }',
+  'jmx = if ($applicationExporterSummary) { $applicationExporterSummary.jmx } else { "skipped" }'
+)) {
+  if ($activeTargetAgentProvisioner -notmatch [regex]::Escape($targetSummaryTerm)) {
+    throw "Target agent summary must surface application exporter result: $targetSummaryTerm"
+  }
+}
+
+foreach ($infisicalExporterTerm in @(
+  "TargetCtid = 120",
+  'TargetName = "infisical"',
+  "prometheus-postgres-exporter",
+  "prometheus-redis-exporter",
+  "User=postgres",
+  "DATA_SOURCE_NAME=user=postgres host=/var/run/postgresql dbname=postgres sslmode=disable",
+  "--web.listen-address=0.0.0.0:9187",
+  "--redis.addr=redis://127.0.0.1:6379",
+  "--web.listen-address=0.0.0.0:9121",
+  "tcp dport 9187",
+  "tcp dport 9121",
+  'ip saddr "`$monitoring_core_host"',
+  "^pg_up 1",
+  "^redis_up 1"
+)) {
+  if ($activeInfisicalExporterProvisioner -notmatch [regex]::Escape($infisicalExporterTerm)) {
+    throw "Missing Infisical exporter provisioner term: $infisicalExporterTerm"
+  }
+}
+
+foreach ($forbiddenInfisicalExporterPattern in @(
+  '(?i)\bpassword\s*=',
+  '(?i)\bDATA_SOURCE_PASS',
+  '(?i)\bREDIS_PASSWORD\b'
+)) {
+  if ($activeInfisicalExporterProvisioner -match $forbiddenInfisicalExporterPattern) {
+    throw "Infisical exporter provisioner must not embed database or Redis passwords."
+  }
+}
+
+$prometheusCandidateIndex =
+  $coreProvisioner.IndexOf('/usr/local/bin/promtool check config "$candidate"')
+$prometheusNextIndex =
+  $coreProvisioner.IndexOf('/etc/prometheus/prometheus.yml.next.$$')
+$prometheusMoveIndex =
+  $coreProvisioner.IndexOf('mv -f "$next_config" "$active"')
+
+if ($prometheusCandidateIndex -lt 0) {
+  throw "Monitoring core must validate the Prometheus candidate with promtool before promotion."
+}
+
+if ($prometheusNextIndex -lt 0) {
+  throw "Monitoring core must stage validated Prometheus config in a same-directory .next tempfile."
+}
+
+if ($prometheusMoveIndex -lt 0) {
+  throw "Monitoring core must atomically promote Prometheus config with mv -f."
+}
+
+if ($prometheusMoveIndex -lt $prometheusCandidateIndex) {
+  throw "Monitoring core must run promtool before atomically promoting Prometheus config."
+}
+
+if ($coreProvisioner -match 'install\s+-o\s+prometheus\s+-g\s+prometheus\s+-m\s+0644\s+"\$candidate"\s+"\$active"') {
+  throw "Monitoring core must not install the candidate directly over the active Prometheus config."
+}
+
+foreach ($cleanupTerm in @(
+  'rm -f "$candidate" "$next_config"',
+  'trap cleanup_prometheus_candidate EXIT HUP INT TERM'
+)) {
+  if ($coreProvisioner -notmatch [regex]::Escape($cleanupTerm)) {
+    throw "Monitoring core must clean up candidate and .next Prometheus temp files: $cleanupTerm"
+  }
+}
+
+function Assert-ArtifactContainsTerm {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RelativePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Term,
+
+    [Parameter(Mandatory = $true)]
+    [string]$RequirementName
+  )
+
+  if ($artifactByPath[$RelativePath].Content -notmatch [regex]::Escape($Term)) {
+    throw "Missing $RequirementName term in ${RelativePath}: $Term"
+  }
+}
+
+function Get-RelativeArtifactPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$FullPath
+  )
+
+  $rootPath = (Resolve-Path -LiteralPath $root).Path.TrimEnd("\", "/")
+  $resolvedPath = (Resolve-Path -LiteralPath $FullPath).Path
+  $relativePath = $resolvedPath.Substring($rootPath.Length).TrimStart("\", "/")
+  $relativePath -replace "\\", "/"
+}
+
+$narrativeContent = (
+  $artifacts |
+    Where-Object { $_.Path -match '^docs/' } |
+    Select-Object -ExpandProperty Content
+) -join "`n"
+
+$requiredNarrativeTerms = @(
+  "CTID 190",
+  "monitoring-core",
+  "Prometheus",
+  "Grafana",
+  "Loki",
+  "Alloy",
+  "133",
+  "esus-pec-lxc-5437"
+)
+
+foreach ($term in $requiredNarrativeTerms) {
+  if ($narrativeContent -notmatch [regex]::Escape($term)) {
+    throw "Missing monitoring stack narrative term: $term"
+  }
+}
+
+Assert-ArtifactContainsTerm "scripts/monitoring/Provision-MonitoringCore.ps1" "CTID 190" "monitoring core script"
+Assert-ArtifactContainsTerm "scripts/monitoring/Provision-MonitoringCore.ps1" "monitoring-core" "monitoring core script"
+Assert-ArtifactContainsTerm "scripts/monitoring/Install-MonitoringTargetAgent.ps1" "133" "monitoring target script"
+Assert-ArtifactContainsTerm "scripts/monitoring/Install-MonitoringTargetAgent.ps1" "esus-pec-lxc-5437" "monitoring target script"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/prometheus.yml" "Prometheus" "Prometheus template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/loki.yml" "Loki" "Loki template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/blackbox.yml" "http_2xx_insecure_tls" "Blackbox HTTP module"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/blackbox.yml" "insecure_skip_verify: true" "Blackbox local TLS handling"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-core.alloy" "Alloy" "Alloy core template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/alloy-linux-target.alloy" "Alloy" "Alloy target template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "Grafana" "Grafana datasource template"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "uid: prometheus" "Grafana Prometheus datasource UID"
+Assert-ArtifactContainsTerm "scripts/monitoring/templates/grafana-datasources.yml" "uid: loki" "Grafana Loki datasource UID"
+Assert-ArtifactContainsTerm "scripts/monitoring/Publish-GrafanaDashboards.ps1" "grafana_url" "Grafana publish env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Publish-GrafanaDashboards.ps1" "grafana_token" "Grafana publish env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "/test/Monitoring" "Grafana Infisical path"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_url" "Grafana Infisical env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "grafana_token" "Grafana Infisical env"
+Assert-ArtifactContainsTerm "scripts/monitoring/Sync-GrafanaInfisicalEnv.ps1" "api/v1/folders" "Grafana Infisical folder creation"
+
+Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD=" "PostgreSQL exporter password placeholder"
+Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "/test/Monitoring" "PostgreSQL exporter Infisical path"
+Assert-ArtifactContainsTerm "config/esus-pec.infisical.env.example" "Never commit the value" "PostgreSQL exporter secret warning"
+
+$runbookPath = "docs/monitoring/2026-06-14-centralized-monitoring.md"
+foreach ($runbookTerm in @(
+  "Install-MonitoringTargetAgent.ps1 -ConfigurePostgresExporter -ConfigureJmxExporter -ApplyJavaServiceChange",
+  "Provision-MonitoringCore.ps1 -SkipCreate",
+  "Publish-GrafanaDashboards.ps1",
+  "prometheus-postgres-exporter",
+  "monitoring-jmx.conf",
+  "daemon-reload",
+  "e-SUS-PEC.service",
+  "The database role is not removed automatically",
+  "postgres_exporter 0.19.1",
+  "229096c7988df6ca41fe5b4bf66865089971535e7f0d819c12c920ec64dd2bd0",
+  "jmx_exporter 1.6.0",
+  "a95983fd96e865d2bcdf911cc500e7c82808c27ab9fd226bf96732b6c3d8c46e",
+  "9187",
+  "9404",
+  "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD",
+  "/test/Monitoring",
+  'root-only `/etc/monitoring/postgres-exporter-password` file on CT `133`',
+  "restricted to the Prometheus host",
+  'PostgreSQL exporter: expected `up` on `192.168.1.209:9187`',
+  'JMX exporter: expected `up` on `192.168.1.209:9404`',
+  "Do not commit, paste, or print"
+)) {
+  Assert-ArtifactContainsTerm $runbookPath $runbookTerm "Task 7 runbook"
+}
+
+$runbookStaleTerms = @(
+  "DSN",
+  "monitoring-targets.local.env"
+)
+foreach ($staleTerm in $runbookStaleTerms) {
+  if ($artifactByPath[$runbookPath].Content -match [regex]::Escape($staleTerm)) {
+    throw "Stale PostgreSQL exporter credential documentation remains in ${runbookPath}: $staleTerm"
+  }
+}
+
+foreach ($artifactPath in @("config/esus-pec.infisical.env.example")) {
+  foreach ($staleTerm in @("ESUS_PEC_POSTGRES_EXPORTER_DSN", "config/monitoring-targets.local.env")) {
+    if ($artifactByPath[$artifactPath].Content -match [regex]::Escape($staleTerm)) {
+      throw "Stale PostgreSQL exporter credential documentation remains in ${artifactPath}: $staleTerm"
+    }
+  }
+}
+
+$dashboardArtifacts = $artifacts | Where-Object { $_.Path -match '^scripts/monitoring/dashboards/.*\.json$' }
+if ($dashboardArtifacts.Count -ne 5) {
+  throw "Expected exactly 5 managed Grafana dashboards; found $($dashboardArtifacts.Count)."
+}
+
+foreach ($dashboardArtifact in $dashboardArtifacts) {
+  try {
+    $dashboard = $dashboardArtifact.Content | ConvertFrom-Json
+  } catch {
+    throw "Grafana dashboard is not valid JSON: $($dashboardArtifact.Path)"
+  }
+
+  foreach ($property in @("uid", "title", "panels", "templating", "time")) {
+    if (-not ($dashboard.PSObject.Properties.Name -contains $property)) {
+      throw "Grafana dashboard '$($dashboardArtifact.Path)' is missing property: $property"
+    }
+  }
+  if (@($dashboard.panels).Count -lt 8) {
+    throw "Grafana dashboard '$($dashboard.title)' must be dense enough for operations; expected at least 8 panels."
+  }
+  if ($dashboardArtifact.Content -notmatch '"uid"\s*:\s*"prometheus"' -or $dashboardArtifact.Content -notmatch '"uid"\s*:\s*"loki"') {
+    throw "Grafana dashboard '$($dashboard.title)' must reference both Prometheus and Loki datasources by UID."
+  }
+}
+
+$ct133Dashboard = $artifactByPath["scripts/monitoring/dashboards/esus-pec-ct133.json"].Content
+$ct133DashboardObject = $ct133Dashboard | ConvertFrom-Json
+$ct133Expressions = @(
+  foreach ($panel in $ct133DashboardObject.panels) {
+    if ($panel.PSObject.Properties.Name -notcontains "targets") {
+      continue
+    }
+    foreach ($target in $panel.targets) {
+      if ($target.PSObject.Properties.Name -contains "expr") {
+        [string]$target.expr
+      }
+    }
+  }
+)
+$ct133NormalizedExpressions = @(
+  $ct133Expressions | ForEach-Object { $_ -replace '\s+', '' }
+)
+$ct133NormalizedExpressionSet = $ct133NormalizedExpressions -join "`n"
+
+foreach ($term in @(
+  'up{host="esus-pec-lxc-5437",instance="192.168.1.209:9187"}',
+  'up{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}',
+  'pg_up{host="esus-pec-lxc-5437"}',
+  'sum by (datname) (pg_stat_database_numbackends{host="esus-pec-lxc-5437"})',
+  'pg_database_size_bytes{host="esus-pec-lxc-5437"}',
+  'rate(pg_stat_database_xact_commit{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_xact_rollback{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_deadlocks{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_tup_inserted{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_tup_updated{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_tup_deleted{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_blks_hit{host="esus-pec-lxc-5437"}[5m])',
+  'rate(pg_stat_database_blks_read{host="esus-pec-lxc-5437"}[5m])',
+  'jvm_memory_bytes_used{host="esus-pec-lxc-5437",area="heap"}',
+  'jvm_memory_bytes_max{host="esus-pec-lxc-5437",area="heap"}',
+  'jvm_memory_bytes_used{host="esus-pec-lxc-5437",area="nonheap"}',
+  'rate(jvm_gc_collection_seconds_sum{host="esus-pec-lxc-5437"}[5m])',
+  'rate(jvm_gc_collection_seconds_count{host="esus-pec-lxc-5437"}[5m])',
+  'jvm_threads_current{host="esus-pec-lxc-5437"}',
+  'jvm_threads_daemon{host="esus-pec-lxc-5437"}',
+  'jvm_classes_loaded_total{host="esus-pec-lxc-5437"}',
+  'process_cpu_seconds_total{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}',
+  '(process_start_time_seconds{host="esus-pec-lxc-5437",instance="192.168.1.209:9404"}) * 1000'
+)) {
+  $normalizedTerm = $term -replace '\s+', ''
+  if ($ct133NormalizedExpressionSet -notmatch [regex]::Escape($normalizedTerm)) {
+    throw "Missing CT 133 application exporter dashboard term: $term"
+  }
+}
+
+foreach ($metricPattern in @(
+  '\bpg_up\b',
+  '\bpg_stat_database',
+  '\bjvm_memory',
+  '\bjvm_gc',
+  '\bjvm_threads'
+)) {
+  if ($ct133NormalizedExpressionSet -notmatch $metricPattern) {
+    throw "Missing CT 133 application exporter dashboard metric pattern: $metricPattern"
+  }
+}
+
+foreach ($obsoleteCt133Job in @("esus-pec-lxc-5437-node", "esus-pec-lxc-5437-nginx")) {
+  if ($ct133NormalizedExpressionSet -match [regex]::Escape($obsoleteCt133Job)) {
+    throw "CT 133 dashboard references obsolete Prometheus job label: $obsoleteCt133Job"
+  }
+}
+
+$platformDashboard =
+  $artifactByPath["scripts/monitoring/dashboards/platform-services-ct110-ct120-ct134.json"].Content
+$platformDashboardObject = $platformDashboard | ConvertFrom-Json
+$platformExpressions = @(
+  foreach ($panel in $platformDashboardObject.panels) {
+    if ($panel.PSObject.Properties.Name -notcontains "targets") {
+      continue
+    }
+    foreach ($target in $panel.targets) {
+      if ($target.PSObject.Properties.Name -contains "expr") {
+        [string]$target.expr
+      }
+    }
+  }
+)
+$platformNormalizedExpressionSet = (
+  $platformExpressions | ForEach-Object { $_ -replace '\s+', '' }
+) -join "`n"
+
+foreach ($platformTerm in @(
+  'probe_success{host="nginx"}',
+  'probe_success{host="infisical"}',
+  'probe_success{host="esus-pec-minio"}',
+  'nginx_up{host="nginx"}',
+  'minio_cluster_capacity_usable_free_bytes{host="esus-pec-minio"}',
+  'minio_cluster_bucket_total{host="esus-pec-minio"}',
+  'pg_up{host="infisical"}',
+  'redis_up{host="infisical"}',
+  'node_filesystem_avail_bytes{host=~"nginx|infisical|esus-pec-minio"'
+)) {
+  $normalizedPlatformTerm = $platformTerm -replace '\s+', ''
+  if ($platformNormalizedExpressionSet -notmatch [regex]::Escape($normalizedPlatformTerm)) {
+    throw "Missing platform services dashboard expression: $platformTerm"
+  }
+}
+
+foreach ($platformLogTerm in @(
+  'host=~"nginx|infisical|esus-pec-minio"',
+  'job=~"linux-target-journal|linux-target-syslog|linux-target-application-logs"'
+)) {
+  $normalizedPlatformLogTerm = $platformLogTerm -replace '\s+', ''
+  if ($platformNormalizedExpressionSet -notmatch [regex]::Escape($normalizedPlatformLogTerm)) {
+    throw "Missing platform services dashboard log selector term: $platformLogTerm"
+  }
+}
+foreach ($requiredCt133Selector in @(
+  'host="esus-pec-lxc-5437"',
+  'instance="192.168.1.209:9100"'
+)) {
+  $normalizedSelector = $requiredCt133Selector -replace '\s+', ''
+  if ($ct133NormalizedExpressionSet -notmatch [regex]::Escape($normalizedSelector)) {
+    throw "CT 133 dashboard must use observed Prometheus selector: $requiredCt133Selector"
+  }
+}
+
+$coreProvisioner = $artifactByPath["scripts/monitoring/Provision-MonitoringCore.ps1"].Content
+foreach ($obsoletePrometheusConsoleReference in @("--web.console.templates", "--web.console.libraries", "/usr/local/share/prometheus/consoles", "/usr/local/share/prometheus/console_libraries")) {
+  if ($coreProvisioner -match [regex]::Escape($obsoletePrometheusConsoleReference)) {
+    throw "Prometheus 3.x console assets are not bundled; remove obsolete provisioner reference: $obsoletePrometheusConsoleReference"
+  }
+}
+
+foreach ($requiredDownloadHardeningTerm in @("download_url()", "curl -4", "--retry", "--retry-all-errors", "--connect-timeout")) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredDownloadHardeningTerm)) {
+    throw "Monitoring core provisioner downloads must include transient network hardening: $requiredDownloadHardeningTerm"
+  }
+}
+
+foreach ($requiredSshWrapperTerm in @('$nativeErrorActionPreference', '$ErrorActionPreference = "Continue"', '$LASTEXITCODE')) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredSshWrapperTerm)) {
+    throw "Monitoring core provisioner SSH wrapper must safely capture native stderr and check exit code: $requiredSshWrapperTerm"
+  }
+}
+
+foreach ($sshScriptTransport in @(
+  @{ Name = "core provisioner"; Content = $coreProvisioner },
+  @{ Name = "target agent"; Content = $targetAgentProvisioner },
+  @{ Name = "application exporter"; Content = $applicationExporterProvisioner }
+)) {
+  foreach ($requiredTransportTerm in @("Copy-TextToProxmoxTempFile", '$normalizedText = $Text -replace "`r`n", "`n" -replace "`r", "`n"', "mktemp /root/", "scp -i", "bash -se <", "rm -f `$remoteTempQuoted")) {
+    if ($sshScriptTransport.Content -notmatch [regex]::Escape($requiredTransportTerm)) {
+      throw "Monitoring $($sshScriptTransport.Name) must execute remote scripts via temporary Proxmox host files: $requiredTransportTerm"
+    }
+  }
+
+  foreach ($forbiddenTransportPattern in @(
+    'echo\s+\$encoded\s*\|\s*base64\s+-d\s*\|\s*bash',
+    'bash\s+-lc\s+''echo\s+\$encoded\s*\|\s*base64\s+-d\s*\|\s*bash'
+  )) {
+    if ($sshScriptTransport.Content -match $forbiddenTransportPattern) {
+      throw "Monitoring $($sshScriptTransport.Name) must not inline encoded remote scripts in SSH command arguments."
+    }
+  }
+}
+
+foreach ($requiredReadinessTerm in @("wait_http_ready()", "for attempt in", "sleep 2")) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredReadinessTerm)) {
+    throw "Monitoring core readiness checks must wait for services instead of using a single curl attempt: $requiredReadinessTerm"
+  }
+}
+
+foreach ($requiredBlackboxCoreTerm in @(
+  "prometheus-blackbox-exporter",
+  "/etc/prometheus/blackbox.yml",
+  "127.0.0.1:9115",
+  "blackbox ="
+)) {
+  if ($coreProvisioner -notmatch [regex]::Escape($requiredBlackboxCoreTerm)) {
+    throw "Monitoring core provisioner must manage Blackbox Exporter: $requiredBlackboxCoreTerm"
+  }
+}
+
+$alloyCoreTemplate = $artifactByPath["scripts/monitoring/templates/alloy-core.alloy"].Content
+$alloyTargetTemplate = $artifactByPath["scripts/monitoring/templates/alloy-linux-target.alloy"].Content
+foreach ($requiredAlloySyntaxTerm in @(
+  'job  = "monitoring-core-journal",',
+  'host = "monitoring-core",',
+  'job  = "linux-target-journal",',
+  'host = "ESUS_PEC_TARGET_NAME",',
+  '__path__ = "/var/log/nginx/*.log",',
+  '__path__ = "/opt/e-SUS/**/*.log",'
+)) {
+  if (($alloyCoreTemplate + "`n" + $alloyTargetTemplate) -notmatch [regex]::Escape($requiredAlloySyntaxTerm)) {
+    throw "Alloy River object fields must use comma separators: $requiredAlloySyntaxTerm"
+  }
+}
+
+$nonDocumentationArtifacts = $artifacts | Where-Object { $_.Path -notmatch '^docs/' }
+foreach ($artifact in $nonDocumentationArtifacts) {
+  if ($artifact.Content -match '(?im)\bpromtail\b') {
+    throw "Promtail agent configuration is not allowed in monitoring artifact: $($artifact.Path)"
+  }
+}
+
+$secretScanFiles = @()
+foreach ($directory in @("scripts/monitoring", "docs/monitoring")) {
+  $directoryPath = Get-ArtifactPath $directory
+  if (Test-Path -LiteralPath $directoryPath -PathType Container) {
+    $secretScanFiles += Get-ChildItem -LiteralPath $directoryPath -Recurse -File | Select-Object -ExpandProperty FullName
+  }
+}
+
+foreach ($file in @(
+  "docs/superpowers/specs/2026-06-14-esus-pec-centralized-monitoring-design.md",
+  "tests/Validate-MonitoringStack.ps1"
+)) {
+  $filePath = Get-ArtifactPath $file
+  if (Test-Path -LiteralPath $filePath -PathType Leaf) {
+    $secretScanFiles += (Resolve-Path -LiteralPath $filePath).Path
+  }
+}
+
+$secretScanArtifacts = $secretScanFiles |
+  Sort-Object -Unique |
+  ForEach-Object {
+    [pscustomobject]@{
+      Path = Get-RelativeArtifactPath $_
+      Content = Get-Content -LiteralPath $_ -Raw
+    }
+  }
+
+$secretPatterns = @(
+  @{
+    Name = "private key"
+    Pattern = '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+  },
+  @{
+    Name = "session token"
+    Pattern = '(?i)\b(JSESSIONID|XSRF-TOKEN)\s*[:=]\s*[A-Za-z0-9+/_=-]{16,}'
+  },
+  @{
+    Name = "authorization token"
+    Pattern = '(?i)\bAuthorization\s*[:=]\s*(Bearer|Basic)\s+[A-Za-z0-9+/_=-]{16,}'
+  },
+  @{
+    Name = "secret assignment"
+    Pattern = '(?i)\b(password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*["'']?(?!\s*(<|\$\{|\$env:|\$script:|\$global:|\$local:|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_][A-Za-z0-9_]*%|REDACTED|redacted|CHANGE_ME|changeme|placeholder|example|your-|YOUR_|__|New-ExporterPassword\b|Get-OrCreatePostgresExporterPassword\b))[A-Za-z0-9+/_=.-]{12,}["'']?'
+  }
+)
+
+foreach ($artifact in $secretScanArtifacts) {
+  foreach ($secretPattern in $secretPatterns) {
+    if ($artifact.Content -match $secretPattern.Pattern) {
+      throw "Monitoring artifact appears to contain an obvious committed secret ($($secretPattern.Name)): $($artifact.Path)"
+    }
+  }
+}
+
+$prometheusTemplate = Get-Content -LiteralPath (Get-ArtifactPath "scripts/monitoring/templates/prometheus.yml") -Raw
+$activePrometheusTemplate = (
+  $prometheusTemplate -split "`r?`n" |
+    Where-Object { $_ -notmatch '^\s*#' }
+) -join "`n"
+
+$esusPecJobPattern =
+  '(?ms)^\s*-\s*job_name:\s*["'']?esus-pec-lxc-5437["'']?\s*$.*?(?=^\s*-\s*job_name:|\z)'
+$esusPecJobMatch = [regex]::Match($activePrometheusTemplate, $esusPecJobPattern)
+if (-not $esusPecJobMatch.Success) {
+  throw "Missing active Prometheus job block: esus-pec-lxc-5437"
+}
+
+$esusPecJobBlock = $esusPecJobMatch.Value
+$targetsMatch = [regex]::Match(
+  $esusPecJobBlock,
+  '(?ms)^\s*(?:-\s*)?targets:\s*$.*?(?=^\s*[A-Za-z_][A-Za-z0-9_-]*:\s*|\z)'
+)
+if (-not $targetsMatch.Success) {
+  throw "Prometheus job esus-pec-lxc-5437 is missing an active targets block."
+}
+
+$esusPecTargetsBlock = $targetsMatch.Value
+foreach ($term in @(
+  "ESUS_PEC_LXC_TARGET_METRICS_HOST:9187",
+  "ESUS_PEC_LXC_TARGET_METRICS_HOST:9404"
+)) {
+  $activeTargetPattern = "(?m)^\s*-\s*$([regex]::Escape($term))\s*$"
+  if ($esusPecTargetsBlock -notmatch $activeTargetPattern) {
+    throw "Missing application exporter Prometheus target: $term"
+  }
+}
+
+if ($esusPecTargetsBlock -match [regex]::Escape("ESUS_PEC_LXC_TARGET_METRICS_HOST:9113")) {
+  throw "Prometheus job esus-pec-lxc-5437 must not scrape Nginx exporter from CT 133; Nginx belongs to CT 110."
+}
+
+foreach ($term in @("monitoring-core", "esus-pec-lxc-5437", "localhost:9090", "133")) {
+  if ($prometheusTemplate -notmatch [regex]::Escape($term)) {
+    throw "Missing Prometheus template term: $term"
+  }
+}
+
+foreach ($newTargetTerm in @(
+  "NGINX_CT_TARGET_METRICS_HOST:9100",
+  "NGINX_CT_TARGET_METRICS_HOST:9113",
+  "INFISICAL_CT_TARGET_METRICS_HOST:9100",
+  "INFISICAL_CT_TARGET_METRICS_HOST:9187",
+  "INFISICAL_CT_TARGET_METRICS_HOST:9121",
+  "MINIO_CT_TARGET_METRICS_HOST:9100",
+  "MINIO_CT_TARGET_METRICS_HOST:9000",
+  "/minio/v2/metrics/cluster",
+  "platform-http-probes",
+  "http_2xx_insecure_tls",
+  "127.0.0.1:9115"
+)) {
+  if ($prometheusTemplate -notmatch [regex]::Escape($newTargetTerm)) {
+    throw "Missing extra target Prometheus term: $newTargetTerm"
+  }
+}
+
+Write-Host "Monitoring stack static validation passed."

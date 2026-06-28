@@ -1,17 +1,27 @@
-param(
+﻿param(
   [string]$ConfigFile = "config/Proxmox.pkrvars.hcl",
   [int]$Ctid = 133,
-  [string]$InfisicalUrl = "http://192.168.1.226:8080",
-  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
-  [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
-  [string]$InfisicalEnvironment = "dev",
+  [string]$InfisicalUrl = "",
+  [string]$InfisicalWorkspaceId = "",
+  [string]$InfisicalProjectSlug = "",
+  [string]$InfisicalEnvironment = "",
   [string]$RuntimeSecretPath = "/test",
   [string]$InstallationSecretPath = "/test/InstallationConfig",
+  [string]$MonitoringSecretPath = "/test/Monitoring",
+  [string]$ObjectStorageSecretPath = "/test/ObjectStorage",
+  [string]$EdgeProxySecretPath = "/test/EdgeProxy",
+  [switch]$AllowBootstrapEmptySources,
   [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
+$infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
+$InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+$InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
+$InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $infisicalEnvFile
+$InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
 
 function Get-HclValue {
   param(
@@ -20,14 +30,8 @@ function Get-HclValue {
     [string]$Default = $null
   )
 
-  $line = $Text -split "`n" | Where-Object {
-    $_ -match ("^\s*" + [regex]::Escape($Name) + "\s*=")
-  } | Select-Object -First 1
-
-  if (-not $line) {
-    return $Default
-  }
-
+  $line = $Text -split "`n" | Where-Object { $_ -match ("^\s*" + [regex]::Escape($Name) + "\s*=") } | Select-Object -First 1
+  if (-not $line) { return $Default }
   return (($line -split "=", 2)[1]).Trim().Trim('"')
 }
 
@@ -47,16 +51,17 @@ function Invoke-ProxmoxSsh {
 }
 
 function Get-InfisicalToken {
-  if ($env:infisical_secret_key) {
-    return $env:infisical_secret_key
-  }
-  if ($env:INFISICAL_TOKEN) {
-    return $env:INFISICAL_TOKEN
-  }
+  if ($env:infisical_secret_key) { return $env:infisical_secret_key }
+  if ($env:INFISICAL_TOKEN) { return $env:INFISICAL_TOKEN }
   if (Test-Path -LiteralPath ".env") {
-    $line = Get-Content -LiteralPath ".env" | Where-Object { $_ -match "^infisical_secret_key=" } | Select-Object -First 1
-    if ($line) {
-      return (($line -split "=", 2)[1]).Trim()
+    foreach ($candidate in @("infisical_secret_key", "INFISICAL_TOKEN")) {
+      $line = Get-Content -LiteralPath ".env" | Where-Object { $_ -match ("^" + [regex]::Escape($candidate) + "=") } | Select-Object -First 1
+      if ($line) {
+        $value = (($line -split "=", 2)[1]).Trim().Trim('"').Trim("'")
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+          return $value
+        }
+      }
     }
   }
   throw "Infisical token not found. Set infisical_secret_key in .env or INFISICAL_TOKEN."
@@ -69,12 +74,51 @@ function Get-InfisicalSecrets {
   )
 
   $uri = "$InfisicalUrl/api/v3/secrets/raw?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&secretPath=$([uri]::EscapeDataString($SecretPath))"
-  $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers -TimeoutSec 30
+  try {
+    $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $Headers -TimeoutSec 30
+  } catch {
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) { return @{} }
+    throw
+  }
+
   $result = @{}
   foreach ($secret in @($response.secrets)) {
     $result[[string]$secret.secretKey] = [string]$secret.secretValue
   }
   return $result
+}
+
+function Ensure-InfisicalFolderPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$SecretPath,
+    [Parameter(Mandatory = $true)][hashtable]$Headers
+  )
+
+  $segments = @($SecretPath.Trim("/") -split "/" | Where-Object { $_ -ne "" })
+  if ($segments.Count -eq 0) { return }
+
+  $parent = "/"
+  foreach ($segment in $segments) {
+    $listUri = "$InfisicalUrl/api/v1/folders?workspaceId=$InfisicalWorkspaceId&environment=$InfisicalEnvironment&path=$([uri]::EscapeDataString($parent))"
+    $folders = Invoke-RestMethod -Method Get -Uri $listUri -Headers $Headers -TimeoutSec 30
+
+    if (@($folders.folders | Where-Object { $_.name -eq $segment }).Count -eq 0) {
+      $body = @{
+        workspaceId = $InfisicalWorkspaceId
+        environment = $InfisicalEnvironment
+        name = $segment
+        path = $parent
+      } | ConvertTo-Json -Compress
+
+      try {
+        $null = Invoke-RestMethod -Method Post -Uri "$InfisicalUrl/api/v1/folders" -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
+      } catch {
+        if (-not $_.Exception.Response -or $_.Exception.Response.StatusCode.value__ -ne 409) { throw }
+      }
+    }
+
+    if ($parent -eq "/") { $parent = "/$segment" } else { $parent = "$parent/$segment" }
+  }
 }
 
 function Set-InfisicalSecret {
@@ -99,6 +143,7 @@ function Set-InfisicalSecret {
   } | ConvertTo-Json -Depth 5
 
   if (-not $Exists) {
+    Ensure-InfisicalFolderPath -SecretPath $SecretPath -Headers $Headers
     $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
     return "created"
   }
@@ -111,6 +156,7 @@ function Set-InfisicalSecret {
     if ($status -ne 404) {
       throw "Failed to update Infisical secret $Name in $SecretPath. HTTP status: $status"
     }
+    Ensure-InfisicalFolderPath -SecretPath $SecretPath -Headers $Headers
     $null = Invoke-RestMethod -Method Post -Uri $uri -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 30
     return "created"
   }
@@ -150,20 +196,6 @@ function Test-InfisicalSecretPathWritable {
   }
 }
 
-function Move-InfisicalSecret {
-  param(
-    [Parameter(Mandatory = $true)][string]$SourcePath,
-    [Parameter(Mandatory = $true)][string]$TargetPath,
-    [Parameter(Mandatory = $true)][string]$Name,
-    [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Value,
-    [Parameter(Mandatory = $true)][hashtable]$Headers
-  )
-
-  # Create the target first so a denied target path cannot delete the source secret.
-  $null = Set-InfisicalSecret -SecretPath $TargetPath -Name $Name -Value $Value -Headers $Headers -Exists $false
-  Remove-InfisicalSecret -SecretPath $SourcePath -Name $Name -Headers $Headers
-}
-
 function Add-Expected {
   param(
     [Parameter(Mandatory = $true)][hashtable]$Target,
@@ -174,21 +206,109 @@ function Add-Expected {
   $Target[$Name] = $Value
 }
 
-function Get-ExistingSecretValue {
+function Merge-SecretMaps {
+  param([Parameter(Mandatory = $true)][hashtable[]]$Maps)
+
+  $merged = @{}
+  foreach ($map in $Maps) {
+    foreach ($key in $map.Keys) {
+      if (-not $merged.ContainsKey($key)) {
+        $merged[$key] = [string]$map[$key]
+      }
+    }
+  }
+  return $merged
+}
+
+function Get-ExistingSecretValueFromSources {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
-    [Parameter(Mandatory = $true)][hashtable]$Primary,
-    [Parameter(Mandatory = $true)][hashtable]$Fallback,
+    [Parameter(Mandatory = $true)][hashtable[]]$Sources,
     [AllowEmptyString()][string]$Default = ""
   )
 
-  if ($Primary.ContainsKey($Name)) {
-    return [string]$Primary[$Name]
-  }
-  if ($Fallback.ContainsKey($Name)) {
-    return [string]$Fallback[$Name]
+  foreach ($source in $Sources) {
+    if ($source.ContainsKey($Name)) { return [string]$source[$Name] }
   }
   return $Default
+}
+
+function Get-ExampleEnvValues {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $values = [ordered]@{}
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $values }
+
+  foreach ($line in Get-Content -LiteralPath $Path) {
+    $trimmed = $line.Trim()
+    if ($trimmed -eq "" -or $trimmed.StartsWith("#") -or $trimmed -notmatch "=") { continue }
+    $parts = $trimmed -split "=", 2
+    $name = $parts[0].Trim()
+    if ($name -match "^[A-Za-z_][A-Za-z0-9_]*$") {
+      $values[$name] = $parts[1].Trim().Trim('"').Trim("'")
+    }
+  }
+
+  return $values
+}
+
+function Get-InstallationSecretPaths {
+  return @(
+    $InstallationSecretPath,
+    "$InstallationSecretPath/FirstRun",
+    "$InstallationSecretPath/TLS",
+    "$InstallationSecretPath/Connectivity",
+    "$InstallationSecretPath/Security",
+    "$InstallationSecretPath/Municipality",
+    "$InstallationSecretPath/Files",
+    "$InstallationSecretPath/Advanced",
+    "$InstallationSecretPath/GovBrOAuth",
+    "$InstallationSecretPath/ImportacaoCNES",
+    "$InstallationSecretPath/ImportacaoBolsaFamilia",
+    "$InstallationSecretPath/Transmissao",
+    "$InstallationSecretPath/TransmissaoAPI"
+  )
+}
+
+function Get-DesiredInfisicalPath {
+  param([Parameter(Mandatory = $true)][string]$Name)
+
+  $runtimeExactNames = @(
+    "ESUS_PEC_ADMIN_USERNAME",
+    "ESUS_PEC_ADMIN_PASSWORD",
+    "ESUS_PEC_SMTP_HOST",
+    "ESUS_PEC_SMTP_PORT",
+    "ESUS_PEC_SMTP_USERNAME",
+    "ESUS_PEC_SMTP_PASSWORD",
+    "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD",
+    "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD"
+  )
+
+  if ($Name -match "^ESUS_PEC_OBJECT_STORAGE_" -or $Name -match "^ESUS_PEC_WALG_") { return $ObjectStorageSecretPath }
+  if ($Name -match "^EDGE_PROXY_") { return $EdgeProxySecretPath }
+  if ($Name -match "^CLOUDFLARE_") { return $EdgeProxySecretPath }
+  if ($Name -match "^ESUS_PEC_PRODUCTION_" -or $Name -in @("INFISICAL_PUBLIC_URL", "PROXMOX_PUBLIC_URL")) { return $EdgeProxySecretPath }
+  if ($Name -eq "ESUS_PEC_POSTGRES_EXPORTER_PASSWORD" -or $Name -in @("grafana_url", "grafana_token", "prometheus_url")) { return $MonitoringSecretPath }
+  if ($Name -match "^ESUS_PEC_DB_" -or $Name -in $runtimeExactNames) { return $RuntimeSecretPath }
+  if ($Name -match "^ESUS_PEC_TRANSMISSAO_API_CREDENTIAL_" -or $Name -eq "ESUS_PEC_TRANSMISSAO_CREDENCIAIS_INTEGRACAO_EXPECTED_COUNT") { return "$InstallationSecretPath/TransmissaoAPI" }
+  if ($Name -match "^ESUS_PEC_TRANSMISSAO_") { return "$InstallationSecretPath/Transmissao" }
+  if ($Name -match "^ESUS_PEC_CNES_") { return "$InstallationSecretPath/ImportacaoCNES" }
+  if ($Name -match "^ESUS_PEC_BOLSA_FAMILIA_") { return "$InstallationSecretPath/ImportacaoBolsaFamilia" }
+  if ($Name -match "^ESUS_PEC_GOVBR_") { return "$InstallationSecretPath/GovBrOAuth" }
+  if ($Name -match "^ESUS_PEC_TLS_") { return "$InstallationSecretPath/TLS" }
+  if ($Name -in @("ESUS_PEC_INTERNET_ENABLED", "ESUS_PEC_CADSUS_ENABLED", "ESUS_PEC_CADSUS_DISABLE_INTERVAL", "ESUS_PEC_HORUS_ENABLED", "ESUS_PEC_HORUS_DISABLE_INTERVAL", "ESUS_PEC_VIDEOCHAMADAS_ENABLED", "ESUS_PEC_AGENDA_ONLINE_ENABLED", "ESUS_PEC_SMTP_ENABLED", "ESUS_PEC_SMTP_FROM_EMAIL", "ESUS_PEC_SMTP_USE_LOGIN_AS_SENDER")) { return "$InstallationSecretPath/Connectivity" }
+  if ($Name -in @("ESUS_PEC_ASSINATURA_DIGITAL_ENABLED", "ESUS_PEC_ASSINATURA_DIGITAL_LOGIN", "ESUS_PEC_ASSINATURA_DIGITAL_PASSWORD", "ESUS_PEC_PASSWORD_RESET_PERIOD_MONTHS", "ESUS_PEC_MAX_INACTIVITY_MINUTES", "ESUS_PEC_MAX_LOGIN_ATTEMPTS", "ESUS_PEC_FORCE_PASSWORD_RESET_ON_NEXT_LOGIN")) { return "$InstallationSecretPath/Security" }
+  if ($Name -in @("ESUS_PEC_MUNICIPALITY_ID", "ESUS_PEC_RESPONSIBLE_PROFESSIONAL_ID", "ESUS_PEC_MUNICIPAL_RESPONSIBLE_ENABLED")) { return "$InstallationSecretPath/Municipality" }
+  if ($Name -match "^ESUS_PEC_FILE_ATTACHMENTS_") { return "$InstallationSecretPath/Files" }
+  if ($Name -in @("ESUS_PEC_CONCURRENT_REQUESTS_USE_DEFAULT", "ESUS_PEC_CONCURRENT_REQUESTS", "ESUS_PEC_CITIZEN_SEARCH_BY_PROPERTIES_ENABLED", "ESUS_PEC_CDS_PROPERTY_FAMILY_REGISTRATION_ENABLED", "ESUS_PEC_BASE_UNIFICATION_ENABLED", "ESUS_PEC_BASE_UNIFICATION_MODE", "ESUS_PEC_SERVER_TIMEZONE", "ESUS_PEC_SERVER_TIMEZONE_OFFSET_MINUTES")) { return "$InstallationSecretPath/Advanced" }
+  if ($Name -match "^ESUS_PEC_") { return "$InstallationSecretPath/FirstRun" }
+
+  return $null
+}
+
+function Test-ManagedInfisicalName {
+  param([Parameter(Mandatory = $true)][string]$Name)
+  return ($Name -match "^ESUS_PEC_" -or $Name -match "^EDGE_PROXY_" -or $Name -match "^CLOUDFLARE_" -or $Name -in @("grafana_url", "grafana_token", "prometheus_url", "INFISICAL_PUBLIC_URL", "PROXMOX_PUBLIC_URL"))
 }
 
 function Get-RemotePecDatabaseValues {
@@ -212,9 +332,7 @@ function Get-RemotePecDatabaseValues {
 
   $jdbc = $urlMatch.Groups["url"].Value
   $dbMatch = [regex]::Match($jdbc, "jdbc:postgresql://(?<host>[^:/]+)(:(?<port>\d+))?/(?<name>[^?\s]+)")
-  if (-not $dbMatch.Success) {
-    throw "Could not parse PEC database JDBC URL."
-  }
+  if (-not $dbMatch.Success) { throw "Could not parse PEC database JDBC URL." }
 
   return @{
     ESUS_PEC_DB_HOST = $dbMatch.Groups["host"].Value
@@ -227,6 +345,67 @@ function Get-RemotePecDatabaseValues {
   }
 }
 
+function Find-ExistingSecretPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$TargetPath,
+    [Parameter(Mandatory = $true)][hashtable]$ExistingByPath
+  )
+
+  foreach ($path in $ExistingByPath.Keys) {
+    if ($path -ne $TargetPath -and $ExistingByPath[$path].ContainsKey($Name)) {
+      return [string]$path
+    }
+  }
+  return $null
+}
+
+function Reconcile-ExpectedSecrets {
+  param(
+    [Parameter(Mandatory = $true)][hashtable]$ExpectedByPath,
+    [Parameter(Mandatory = $true)][hashtable]$ExistingByPath,
+    [Parameter(Mandatory = $true)][hashtable]$Headers,
+    [System.Collections.Generic.List[string]]$Created,
+    [System.Collections.Generic.List[string]]$Updated,
+    [System.Collections.Generic.List[string]]$Deleted,
+    [Parameter(Mandatory = $true)][bool]$IsDryRun
+  )
+
+  foreach ($path in $ExpectedByPath.Keys) {
+    foreach ($name in $ExpectedByPath[$path].Keys) {
+      $value = [string]$ExpectedByPath[$path][$name]
+      $targetExists = $ExistingByPath[$path].ContainsKey($name)
+
+      if ($IsDryRun) {
+        if (-not $targetExists) { $Created.Add("$path/$name") }
+        foreach ($sourcePath in $ExistingByPath.Keys) {
+          if ($sourcePath -ne $path -and $ExistingByPath[$sourcePath].ContainsKey($name)) {
+            $Deleted.Add("$sourcePath/$name")
+          }
+        }
+        continue
+      }
+
+      if (-not $targetExists) {
+        $sourcePath = Find-ExistingSecretPath -Name $name -TargetPath $path -ExistingByPath $ExistingByPath
+        $null = Set-InfisicalSecret -SecretPath $path -Name $name -Value $value -Headers $Headers -Exists $false
+        $Created.Add("$path/$name")
+        if ($sourcePath) {
+          Remove-InfisicalSecret -SecretPath $sourcePath -Name $name -Headers $Headers
+          $Deleted.Add("$sourcePath/$name")
+          $ExistingByPath[$sourcePath].Remove($name)
+        }
+        $ExistingByPath[$path][$name] = $value
+      } else {
+        if ([string]$ExistingByPath[$path][$name] -ne $value) {
+          $action = Set-InfisicalSecret -SecretPath $path -Name $name -Value $value -Headers $Headers -Exists $true
+          if ($action -eq "created") { $Created.Add("$path/$name") } else { $Updated.Add("$path/$name") }
+        }
+      }
+    }
+  }
+}
+
 $configText = Get-Content -LiteralPath $ConfigFile -Raw
 $sshHost = Get-HclValue -Name "proxmox_ssh_host" -Text $configText
 $sshPort = Get-HclValue -Name "proxmox_ssh_port" -Text $configText -Default "22"
@@ -234,200 +413,112 @@ $sshUser = Get-HclValue -Name "proxmox_ssh_user" -Text $configText -Default "roo
 $sshKey = Get-HclValue -Name "proxmox_ssh_private_key_file" -Text $configText
 $sshTarget = "$sshUser@$sshHost"
 
-$token = Get-InfisicalToken
-$headers = @{ Authorization = "Bearer $token" }
+$headers = @{ Authorization = "Bearer $(Get-InfisicalToken)" }
+$installationPaths = @(Get-InstallationSecretPaths)
+$managedPaths = @($RuntimeSecretPath) + $installationPaths + @($MonitoringSecretPath, $ObjectStorageSecretPath, $EdgeProxySecretPath)
 
-$sameSecretPath = $RuntimeSecretPath -eq $InstallationSecretPath
-$existingRuntime = Get-InfisicalSecrets -SecretPath $RuntimeSecretPath -Headers $headers
-$existingInstall = if ($sameSecretPath) { $existingRuntime } else { Get-InfisicalSecrets -SecretPath $InstallationSecretPath -Headers $headers }
-
-if (-not $DryRun) {
-  Test-InfisicalSecretPathWritable -SecretPath $RuntimeSecretPath -Headers $headers
-  if (-not $sameSecretPath) {
-    Test-InfisicalSecretPathWritable -SecretPath $InstallationSecretPath -Headers $headers
-  }
+$existingByPath = @{}
+foreach ($path in $managedPaths) {
+  $existingByPath[$path] = Get-InfisicalSecrets -SecretPath $path -Headers $headers
 }
+
+$existingRuntime = $existingByPath[$RuntimeSecretPath]
+$existingInstall = Merge-SecretMaps -Maps @($installationPaths | ForEach-Object { $existingByPath[$_] })
+$existingMonitoring = $existingByPath[$MonitoringSecretPath]
+$existingObjectStorage = $existingByPath[$ObjectStorageSecretPath]
+$existingEdgeProxy = $existingByPath[$EdgeProxySecretPath]
+$allSources = @($existingRuntime, $existingInstall, $existingMonitoring, $existingObjectStorage, $existingEdgeProxy)
 
 $expectedRuntime = @{}
 foreach ($entry in (Get-RemotePecDatabaseValues -Target $sshTarget -Port $sshPort -KeyFile $sshKey -ContainerId $Ctid).GetEnumerator()) {
   Add-Expected -Target $expectedRuntime -Name $entry.Key -Value $entry.Value
 }
 
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_ADMIN_USERNAME" -Value $existingInstall["ESUS_PEC_INSTALLER_CPF"]
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_ADMIN_PASSWORD" -Value $existingInstall["ESUS_PEC_INITIAL_PASSWORD"]
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_HOST" -Value ""
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_PORT" -Value "587"
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_USERNAME" -Value ""
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_PASSWORD" -Value ""
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD" -Value ""
-Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD" -Value ""
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_ADMIN_USERNAME" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_INSTALLER_CPF" -Sources @($existingInstall, $existingRuntime))
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_ADMIN_PASSWORD" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_INITIAL_PASSWORD" -Sources @($existingInstall, $existingRuntime))
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_HOST" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_SMTP_HOST" -Sources $allSources)
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_PORT" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_SMTP_PORT" -Sources $allSources -Default "587")
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_USERNAME" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_SMTP_USERNAME" -Sources $allSources)
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_SMTP_PASSWORD" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_SMTP_PASSWORD" -Sources $allSources)
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD" -Sources $allSources)
+Add-Expected -Target $expectedRuntime -Name "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD" -Value (Get-ExistingSecretValueFromSources -Name "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD" -Sources $allSources)
 
-$expectedInstall = @{}
-$installValueAliases = @{
-  ESUS_PEC_BASE_URL = "ESUS_PEC_EXTERNAL_BASE_URL"
-  ESUS_PEC_INITIAL_PASSWORD = "ESUS_PEC_ADMIN_PASSWORD"
-  ESUS_PEC_INSTALLATION_URL = "ESUS_PEC_EXTERNAL_BASE_URL"
-  ESUS_PEC_INSTALLER_CPF = "ESUS_PEC_ADMIN_USERNAME"
+$exampleValues = Get-ExampleEnvValues -Path "config/esus-pec.infisical.env.example"
+$expectedByPath = @{}
+foreach ($path in $managedPaths) { $expectedByPath[$path] = @{} }
+foreach ($entry in $expectedRuntime.GetEnumerator()) {
+  Add-Expected -Target $expectedByPath[$RuntimeSecretPath] -Name $entry.Key -Value $entry.Value
 }
 
-foreach ($name in @(
-    "ESUS_PEC_BASE_URL",
-    "ESUS_PEC_INITIAL_PASSWORD",
-    "ESUS_PEC_INSTALLATION_NAME",
-    "ESUS_PEC_INSTALLATION_TYPE",
-    "ESUS_PEC_INSTALLATION_URL",
-    "ESUS_PEC_INSTALLER_CPF",
-    "ESUS_PEC_INSTALLER_NAME_CIVIL",
-    "ESUS_PEC_TLS_CERTIFICATE_KIND",
-    "ESUS_PEC_TLS_CERTIFICATE_NOT_AFTER",
-    "ESUS_PEC_TLS_CERTIFICATE_PEM",
-    "ESUS_PEC_TLS_CERTIFICATE_SAN",
-    "ESUS_PEC_TLS_CERTIFICATE_SHA256",
-    "ESUS_PEC_TLS_HTTPS_URL",
-    "ESUS_PEC_TLS_PRIVATE_KEY_PEM",
-    "ESUS_PEC_TLS_TERMINATION"
-  )) {
-  $value = Get-ExistingSecretValue -Name $name -Primary $existingInstall -Fallback $existingRuntime
-  if (($value -eq "") -and $installValueAliases.ContainsKey($name)) {
-    $value = Get-ExistingSecretValue -Name $installValueAliases[$name] -Primary $existingInstall -Fallback $existingRuntime
+foreach ($entry in $exampleValues.GetEnumerator()) {
+  $desiredPath = Get-DesiredInfisicalPath -Name $entry.Key
+  if ($null -eq $desiredPath) { continue }
+  if ($desiredPath -eq $RuntimeSecretPath -and $expectedByPath[$RuntimeSecretPath].ContainsKey($entry.Key)) { continue }
+  $value = Get-ExistingSecretValueFromSources -Name $entry.Key -Sources $allSources -Default ([string]$entry.Value)
+  Add-Expected -Target $expectedByPath[$desiredPath] -Name $entry.Key -Value $value
+}
+
+if (-not $DryRun -and -not $AllowBootstrapEmptySources) {
+  if ($existingRuntime.Count -eq 0 -and $expectedByPath[$RuntimeSecretPath].Count -gt 0) {
+    throw "Refusing to sync because '$RuntimeSecretPath' is readable but has zero visible secrets. Restore token read access or rerun with -AllowBootstrapEmptySources only after confirming a deliberate bootstrap."
   }
-  Add-Expected -Target $expectedInstall -Name $name -Value $value
+  $expectedInstallVisibleCount = 0
+  foreach ($path in $installationPaths) {
+    $expectedInstallVisibleCount += $expectedByPath[$path].Count
+  }
+  if ($existingInstall.Count -eq 0 -and $expectedInstallVisibleCount -gt 0) {
+    throw "Refusing to sync because '$InstallationSecretPath' and its managed subfolders have zero visible secrets. Restore token read access before moving existing InstallationConfig values."
+  }
 }
 
-$installDefaults = [ordered]@{
-  ESUS_PEC_INSTALLER_SOURCE_URL = "https://arquivos.esusaps.ufsc.br/PEC/687651a247e537a3/5.4.37/eSUS-AB-PEC-5.4.37-Linux64.jar"
-  ESUS_PEC_INSTALLER_SHA256 = "9975a55184a6dd1f66d8a837bbc533376e0400069485e8acb45100c23a535bfb"
-  ESUS_PEC_LXC_TEST_URL = "http://192.168.1.209:8080/"
-  ESUS_PEC_LXC_TEST_HTTPS_URL = "https://192.168.1.209/"
-  ESUS_PEC_LXC_CREDENTIALS_FILE = "/opt/e-SUS/webserver/config/credenciais.txt"
-  ESUS_PEC_EXTERNAL_BASE_URL = ""
-  ESUS_PEC_INTERNET_ENABLED = "true"
-  ESUS_PEC_CADSUS_ENABLED = "true"
-  ESUS_PEC_CADSUS_DISABLE_INTERVAL = ""
-  ESUS_PEC_HORUS_ENABLED = "false"
-  ESUS_PEC_HORUS_DISABLE_INTERVAL = "INDETERMINADO"
-  ESUS_PEC_VIDEOCHAMADAS_ENABLED = "false"
-  ESUS_PEC_AGENDA_ONLINE_ENABLED = "false"
-  ESUS_PEC_ASSINATURA_DIGITAL_ENABLED = "false"
-  ESUS_PEC_ASSINATURA_DIGITAL_LOGIN = ""
-  ESUS_PEC_ASSINATURA_DIGITAL_PASSWORD = ""
-  ESUS_PEC_PASSWORD_RESET_PERIOD_MONTHS = "6"
-  ESUS_PEC_MAX_INACTIVITY_MINUTES = "60"
-  ESUS_PEC_MAX_LOGIN_ATTEMPTS = "5"
-  ESUS_PEC_FORCE_PASSWORD_RESET_ON_NEXT_LOGIN = "false"
-  ESUS_PEC_SMTP_ENABLED = "false"
-  ESUS_PEC_SMTP_FROM_EMAIL = ""
-  ESUS_PEC_SMTP_USE_LOGIN_AS_SENDER = "false"
-  ESUS_PEC_MUNICIPALITY_ID = ""
-  ESUS_PEC_RESPONSIBLE_PROFESSIONAL_ID = ""
-  ESUS_PEC_MUNICIPAL_RESPONSIBLE_ENABLED = "false"
-  ESUS_PEC_FILE_ATTACHMENTS_ENABLED = "false"
-  ESUS_PEC_FILE_ATTACHMENTS_DIRECTORY = ""
-  ESUS_PEC_CONCURRENT_REQUESTS_USE_DEFAULT = "true"
-  ESUS_PEC_CONCURRENT_REQUESTS = "16"
-  ESUS_PEC_CITIZEN_SEARCH_BY_PROPERTIES_ENABLED = "false"
-  ESUS_PEC_CDS_PROPERTY_FAMILY_REGISTRATION_ENABLED = "false"
-  ESUS_PEC_BASE_UNIFICATION_ENABLED = "false"
-  ESUS_PEC_BASE_UNIFICATION_MODE = ""
-}
-
-foreach ($entry in $installDefaults.GetEnumerator()) {
-  $value = Get-ExistingSecretValue -Name $entry.Key -Primary $existingInstall -Fallback $existingRuntime -Default $entry.Value
-  Add-Expected -Target $expectedInstall -Name $entry.Key -Value $value
-}
-
-$runtimeAllowed = [string[]]$expectedRuntime.Keys
-$installAllowed = [string[]]$expectedInstall.Keys
-$combinedAllowed = @($runtimeAllowed + $installAllowed | Sort-Object -Unique)
-$preserveSourceValueOnMove = @(
-  "ESUS_PEC_SMTP_HOST",
-  "ESUS_PEC_SMTP_PORT",
-  "ESUS_PEC_SMTP_USERNAME",
-  "ESUS_PEC_SMTP_PASSWORD",
-  "ESUS_PEC_BACKUP_ENCRYPTION_PASSWORD",
-  "ESUS_PEC_RESTORE_ARCHIVE_PASSWORD"
-)
-
-if ($sameSecretPath) {
-  $runtimeExtra = @()
-  $installExtra = @($existingInstall.Keys | Where-Object { $_ -notin $combinedAllowed } | Sort-Object)
-} else {
-  $runtimeExtra = @($existingRuntime.Keys | Where-Object { $_ -notin $runtimeAllowed } | Sort-Object)
-  $installExtra = @($existingInstall.Keys | Where-Object { $_ -notin $installAllowed } | Sort-Object)
+$allowedByPath = @{}
+foreach ($path in $managedPaths) {
+  $allowedByPath[$path] = [string[]]$expectedByPath[$path].Keys
 }
 
 $created = New-Object System.Collections.Generic.List[string]
 $updated = New-Object System.Collections.Generic.List[string]
 $deleted = New-Object System.Collections.Generic.List[string]
 
-foreach ($entry in $expectedRuntime.GetEnumerator()) {
-  if ($DryRun) {
-    if (-not $existingRuntime.ContainsKey($entry.Key)) { $created.Add("$RuntimeSecretPath/$($entry.Key)") }
-    if ($existingInstall.ContainsKey($entry.Key)) { $deleted.Add("$InstallationSecretPath/$($entry.Key)") }
-  } else {
-    if (-not $existingRuntime.ContainsKey($entry.Key) -and $existingInstall.ContainsKey($entry.Key)) {
-      $moveValue = [string]$entry.Value
-      if ($entry.Key -in $preserveSourceValueOnMove) {
-        $moveValue = [string]$existingInstall[$entry.Key]
+Reconcile-ExpectedSecrets -ExpectedByPath $expectedByPath -ExistingByPath $existingByPath -Headers $headers -Created $created -Updated $updated -Deleted $deleted -IsDryRun $DryRun.IsPresent
+
+foreach ($path in $managedPaths) {
+  foreach ($name in @($existingByPath[$path].Keys | Sort-Object)) {
+    if ($name -notin $allowedByPath[$path] -and (Test-ManagedInfisicalName -Name $name)) {
+      $deleteKey = "$path/$name"
+      if ($deleted.Contains($deleteKey)) { continue }
+      if ($DryRun) {
+        $deleted.Add($deleteKey)
+      } else {
+        Remove-InfisicalSecret -SecretPath $path -Name $name -Headers $headers
+        $deleted.Add($deleteKey)
       }
-      Move-InfisicalSecret -SourcePath $InstallationSecretPath -TargetPath $RuntimeSecretPath -Name $entry.Key -Value $moveValue -Headers $headers
-      $created.Add("$RuntimeSecretPath/$($entry.Key)")
-      $deleted.Add("$InstallationSecretPath/$($entry.Key)")
-    } else {
-      $action = Set-InfisicalSecret -SecretPath $RuntimeSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $existingRuntime.ContainsKey($entry.Key)
-      if ($action -eq "created") { $created.Add("$RuntimeSecretPath/$($entry.Key)") } else { $updated.Add("$RuntimeSecretPath/$($entry.Key)") }
     }
   }
 }
 
-foreach ($entry in $expectedInstall.GetEnumerator()) {
-  if ($sameSecretPath -and $expectedRuntime.ContainsKey($entry.Key)) {
-    continue
-  }
-  if ($DryRun) {
-    if (-not $existingInstall.ContainsKey($entry.Key)) { $created.Add("$InstallationSecretPath/$($entry.Key)") }
-  } else {
-    $exists = if ($sameSecretPath) { ($existingInstall.ContainsKey($entry.Key) -or $expectedRuntime.ContainsKey($entry.Key)) } else { $existingInstall.ContainsKey($entry.Key) }
-    $action = Set-InfisicalSecret -SecretPath $InstallationSecretPath -Name $entry.Key -Value ([string]$entry.Value) -Headers $headers -Exists $exists
-    if ($action -eq "created") { $created.Add("$InstallationSecretPath/$($entry.Key)") } else { $updated.Add("$InstallationSecretPath/$($entry.Key)") }
-  }
-}
-
-foreach ($name in $runtimeExtra) {
-  $deleteKey = "$RuntimeSecretPath/$name"
-  if ($deleted.Contains($deleteKey)) {
-    continue
-  }
-  if ($DryRun) {
-    $deleted.Add($deleteKey)
-  } else {
-    Remove-InfisicalSecret -SecretPath $RuntimeSecretPath -Name $name -Headers $headers
-    $deleted.Add($deleteKey)
-  }
-}
-
-foreach ($name in $installExtra) {
-  $deleteKey = "$InstallationSecretPath/$name"
-  if ($deleted.Contains($deleteKey)) {
-    continue
-  }
-  if ($DryRun) {
-    $deleted.Add($deleteKey)
-  } else {
-    Remove-InfisicalSecret -SecretPath $InstallationSecretPath -Name $name -Headers $headers
-    $deleted.Add($deleteKey)
-  }
+$expectedInstallationCount = 0
+foreach ($path in $installationPaths) {
+  $expectedInstallationCount += $expectedByPath[$path].Count
 }
 
 [ordered]@{
   dryRun = $DryRun.IsPresent
   runtimePath = $RuntimeSecretPath
   installationPath = $InstallationSecretPath
-  expectedRuntimeCount = $expectedRuntime.Count
-  expectedInstallationCount = $expectedInstall.Count
+  installationPaths = @($installationPaths)
+  monitoringPath = $MonitoringSecretPath
+  objectStoragePath = $ObjectStorageSecretPath
+  edgeProxyPath = $EdgeProxySecretPath
+  expectedRuntimeCount = $expectedByPath[$RuntimeSecretPath].Count
+  expectedInstallationCount = $expectedInstallationCount
+  expectedMonitoringCount = $expectedByPath[$MonitoringSecretPath].Count
+  expectedObjectStorageCount = $expectedByPath[$ObjectStorageSecretPath].Count
+  expectedEdgeProxyCount = $expectedByPath[$EdgeProxySecretPath].Count
   createdCount = $created.Count
   updatedCount = $updated.Count
   deletedCount = $deleted.Count
   created = @($created)
   deleted = @($deleted)
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json -Depth 6
+

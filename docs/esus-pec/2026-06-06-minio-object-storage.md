@@ -46,7 +46,7 @@ mc version RELEASE.2025-08-13T08-35-41Z
 
 ## Infisical Variables
 
-Secrets and metadata were stored in project `esus-pec`, environment `dev`, path `/test`, using the prefix `ESUS_PEC_OBJECT_STORAGE_*`. The attempted `/test/ObjectStorage` folder is empty and unused because the active token policy did not allow secret creation in that subpath.
+Secrets and metadata are stored in project `esus-pec`, environment `dev`, path `/test/ObjectStorage`, using the prefix `ESUS_PEC_OBJECT_STORAGE_*`. On 2026-06-21, the expanded token allowed the previous `/test` values to be moved into this dedicated folder.
 
 Credential variables:
 

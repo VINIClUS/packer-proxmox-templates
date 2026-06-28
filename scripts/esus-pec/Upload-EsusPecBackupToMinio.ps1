@@ -3,16 +3,22 @@ param(
   [int]$Ctid = 134,
   [string]$BackupFile = "20260519192557-esus-postgres.backup",
   [string]$ObjectKey = "postgres/2026/05/20260519192557-esus-postgres.backup",
-  [string]$InfisicalUrl = "http://192.168.1.226:8080",
-  [string]$InfisicalWorkspaceId = "2c83cfe9-e794-4961-977d-23000ae14461",
-  [string]$InfisicalProjectSlug = "esus-pec-z-px-c",
-  [string]$InfisicalEnvironment = "dev",
-  [string]$InfisicalSecretPath = "/test",
+  [string]$InfisicalUrl = "",
+  [string]$InfisicalWorkspaceId = "",
+  [string]$InfisicalProjectSlug = "",
+  [string]$InfisicalEnvironment = "",
+  [string]$InfisicalSecretPath = "/test/ObjectStorage",
   [switch]$RemoveLocalAfterValidation
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "..\common\InfisicalEndpoint.ps1")
+$infisicalEnvFile = if (Get-Variable -Name EnvFile -ErrorAction SilentlyContinue) { $EnvFile } else { ".env" }
+$InfisicalUrl = Resolve-InfisicalUrl -CurrentValue $InfisicalUrl -EnvFilePath $infisicalEnvFile
+$InfisicalWorkspaceId = Resolve-InfisicalSetting -Name "INFISICAL_WORKSPACE_ID" -CurrentValue $InfisicalWorkspaceId -EnvFilePath $infisicalEnvFile
+$InfisicalProjectSlug = Resolve-InfisicalSetting -Name "INFISICAL_PROJECT_SLUG" -CurrentValue $InfisicalProjectSlug -EnvFilePath $infisicalEnvFile
+$InfisicalEnvironment = Resolve-InfisicalSetting -Name "INFISICAL_ENVIRONMENT" -CurrentValue $InfisicalEnvironment -EnvFilePath $infisicalEnvFile
 
 function Get-HclValue {
   param(
@@ -41,8 +47,13 @@ function Get-InfisicalToken {
   if ($env:infisical_secret_key) { return $env:infisical_secret_key }
   if ($env:INFISICAL_TOKEN) { return $env:INFISICAL_TOKEN }
   if (Test-Path -LiteralPath ".env") {
-    $line = Get-Content -LiteralPath ".env" | Where-Object { $_ -match "^infisical_secret_key=" } | Select-Object -First 1
-    if ($line) { return (($line -split "=", 2)[1]).Trim() }
+    foreach ($candidate in @("infisical_secret_key", "INFISICAL_TOKEN")) {
+      $line = Get-Content -LiteralPath ".env" | Where-Object { $_ -match ("^" + [regex]::Escape($candidate) + "=") } | Select-Object -First 1
+      if ($line) {
+        $value = (($line -split "=", 2)[1]).Trim().Trim('"').Trim("'")
+        if (-not [string]::IsNullOrWhiteSpace($value)) { return $value }
+      }
+    }
   }
   throw "Infisical token not found. Set infisical_secret_key in .env or INFISICAL_TOKEN."
 }
